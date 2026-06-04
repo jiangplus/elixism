@@ -168,6 +168,11 @@ M.even?(10)")))
      (deftest "binary 16-bit match" (assert-equal 258 (ev "<<x::16>> = <<1, 2>>\nx")))
      (deftest "binary mixed sizes + rest"
        (assert-equal "{8080, 3}" (ev* "<<port::16, ver::8, _r::binary>> = <<31, 144, 3, 0>>\n{port, ver}")))
+     (deftest "sub-byte nibbles" (assert-equal "{4, 5}" (ev* "<<v::4, ihl::4>> = <<69>>\n{v, ihl}")))
+     (deftest "sub-byte bit flag" (assert-equal "{1, 72}" (ev* "<<f::1, r::7>> = <<200>>\n{f, r}")))
+     (deftest "sub-byte pack construct" (assert-equal 85 (ev "<<x>> = <<5::4, 5::4>>\nx")))
+     (deftest "sub-byte mixed with multi-byte"
+       (assert-equal "{4, 5, 1500}" (ev* "<<ver::4, ihl::4, _tos::8, len::16>> = <<69, 0, 5, 220>>\n{ver, ihl, len}")))
      (deftest "string prefix match"
        (assert-equal "/x" (ev "defmodule P do\ndef path(\"GET \" <> p), do: p\nend\nP.path(\"GET /x\")")))
      (deftest "string prefix dispatch"

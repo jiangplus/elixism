@@ -62,7 +62,7 @@ flat `begin`.
 string operations. A fixed integer segment consumes `size/8` codepoint-bytes
 (big-endian) at a compile-time-known offset — so `<<port::16, ver::8>>` reads 2
 then 1 bytes — and a trailing `var::binary` binds the remaining substring.
-Sub-byte sizes (`::1`, `::4`) are not supported. The common string-prefix idiom
+Sub-byte sizes (`::1`, `::4`) are bit-packed MSB-first when the total is byte-aligned. The common string-prefix idiom
 `"GET " <> rest = req` compiles to a `string-prefix?` test plus a `substring`
 bind.
 

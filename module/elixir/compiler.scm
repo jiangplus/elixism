@@ -275,27 +275,64 @@
 ;; (size/8) codepoint-bytes at a compile-time-known offset, read big-endian; a
 ;; trailing `var::binary` binds the remainder.  An unsized binary must be last.
 (define (compile-binary-pattern segs subj ctx)
+  (if (binary-has-subbyte? segs)
+      (compile-bit-pattern segs subj ctx)
+      (let* ((rev (reverse segs))
+             (last-seg (and (pair? rev) (car rev)))
+             (rest-bind (and last-seg (binary-rest-seg last-seg)))
+             (fixed (if rest-bind (reverse (cdr rev)) segs))
+             ;; cumulative byte offsets (segment widths are compile-time constants)
+             (offsets (scan-offsets (map seg-byte-width fixed)))
+             (total (apply + (map seg-byte-width fixed))))
+        `(and (string? ,subj)
+              ,(if rest-bind `(>= (string-length ,subj) ,total) `(= (string-length ,subj) ,total))
+              ,@(map (lambda (seg off w)
+                       (match seg
+                         (('bseg e _)
+                          (compile-pattern e `(string-be->int ,subj ,off ,w) #f ctx))))
+                     fixed offsets (map seg-byte-width fixed))
+              ,(if rest-bind
+                   (compile-pattern rest-bind `(substring ,subj ,total (string-length ,subj)) #f ctx)
+                   #t)))))
+
+;; Bit-level pattern: fixed integer fields read at compile-time bit offsets; a
+;; trailing `var::binary` (byte-aligned) binds the rest.
+(define (compile-bit-pattern segs subj ctx)
   (let* ((rev (reverse segs))
          (last-seg (and (pair? rev) (car rev)))
          (rest-bind (and last-seg (binary-rest-seg last-seg)))
          (fixed (if rest-bind (reverse (cdr rev)) segs))
-         ;; cumulative byte offsets (segment widths are compile-time constants)
-         (offsets (scan-offsets (map seg-byte-width fixed)))
-         (total (apply + (map seg-byte-width fixed))))
+         (widths (map seg-bit-width fixed))
+         (offsets (scan-offsets widths))
+         (total (apply + widths)))
     `(and (string? ,subj)
-          ,(if rest-bind `(>= (string-length ,subj) ,total) `(= (string-length ,subj) ,total))
+          ,(if rest-bind `(>= (* 8 (string-length ,subj)) ,total)
+               `(= (* 8 (string-length ,subj)) ,total))
           ,@(map (lambda (seg off w)
                    (match seg
                      (('bseg e _)
-                      (compile-pattern e `(string-be->int ,subj ,off ,w) #f ctx))))
-                 fixed offsets (map seg-byte-width fixed))
+                      (compile-pattern e `(binary-bits-ref ,subj ,off ,w) #f ctx))))
+                 fixed offsets widths)
           ,(if rest-bind
-               (compile-pattern rest-bind `(substring ,subj ,total (string-length ,subj)) #f ctx)
+               (compile-pattern rest-bind
+                                `(substring ,subj ,(quotient total 8) (string-length ,subj)) #f ctx)
                #t))))
 
 ;; Compile-time byte width of a fixed segment.
 (define (seg-byte-width seg)
   (match seg (('bseg _ type) (if (and (integer? type) (> type 8)) (quotient type 8) 1))))
+
+;; Compile-time bit width of a fixed integer segment (#f for binary/utf8).
+(define (seg-bit-width seg)
+  (match seg
+    (('bseg _ type)
+     (cond ((memq type '(binary bitstring bytes utf8 utf16 utf32)) #f)
+           ((integer? type) type)
+           (else 8)))))
+
+;; Does any segment specify a sub-byte (non-multiple-of-8) integer field?
+(define (binary-has-subbyte? segs)
+  (any (lambda (s) (let ((w (seg-bit-width s))) (and w (not (zero? (modulo w 8)))))) segs))
 
 ;; Running sums: (a b c) -> (0 a a+b).
 (define (scan-offsets widths)
@@ -339,11 +376,23 @@
     (('list elts tail) (compile-list elts tail ctx))
     (('tuple elts) `(make-tuple ,@(map (lambda (x) (compile-expr x ctx)) elts)))
     (('binary segs)
-     `(string-append
-       ,@(map (lambda (s)
-                (match s (('bseg e type)
-                          `(ex-bin-seg ,(compile-expr e ctx) ',type))))
-              segs)))
+     (if (binary-has-subbyte? segs)
+         ;; bit-packed: sub-byte integer fields packed MSB-first
+         `(ex-build-binary
+           (list ,@(map (lambda (s)
+                          (match s
+                            (('bseg e type)
+                             (if (memq type '(binary bitstring bytes))
+                                 `(list 'append ,(compile-expr e ctx))
+                                 `(list 'field ,(compile-expr e ctx)
+                                        ,(or (seg-bit-width s) 8))))))
+                        segs)))
+         ;; byte-aligned: simple per-segment string concatenation
+         `(string-append
+           ,@(map (lambda (s)
+                    (match s (('bseg e type)
+                              `(ex-bin-seg ,(compile-expr e ctx) ',type))))
+                  segs))))
     (('map pairs)
      `(alist->emap (list ,@(map (lambda (kv)
                                   `(cons ,(compile-expr (car kv) ctx)

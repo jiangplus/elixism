@@ -41,6 +41,7 @@
             ex-++ ex-<> ex-in?
             ex-range ex-list-difference string->charlist charlist->string
             ex-enumerate ex-into ex-bin-seg string-be->int bin-seg-width
+            ex-build-binary binary-bits-ref
             ;; inspection
             inspect ex->display
             ;; errors
@@ -261,6 +262,47 @@
   (let loop ((k 0) (acc 0))
     (if (>= k nbytes) acc
         (loop (+ k 1) (+ (* acc 256) (char->integer (string-ref s (+ off k))))))))
+
+;;; --- sub-byte (bit-level) binaries --------------------------------------
+;; Build a binary from a list of bit segments, packed MSB-first.  Each segment
+;; is (field value width-bits) or (append string) -- an `append` (a nested
+;; binary) must fall on a byte boundary.  The total must be byte-aligned.
+(define (ex-build-binary segs)
+  (let loop ((segs segs) (acc 0) (nbits 0) (parts '()))
+    (cond
+     ((null? segs) (apply string-append (reverse (cons (bits->string acc nbits) parts))))
+     (else
+      (let ((s (car segs)))
+        (case (car s)
+          ((field)
+           (let ((w (caddr s)))
+             (loop (cdr segs)
+                   (logior (ash acc w) (logand (cadr s) (- (ash 1 w) 1)))
+                   (+ nbits w) parts)))
+          ((append)
+           (loop (cdr segs) 0 0
+                 (cons (cadr s) (cons (bits->string acc nbits) parts))))))))))
+
+;; Pack an nbits-bit integer (nbits a multiple of 8) into big-endian bytes.
+(define (bits->string acc nbits)
+  (if (zero? nbits) ""
+      (begin
+        (unless (zero? (modulo nbits 8))
+          (ex-raise (make-tuple 'ArgumentError "bitstring not byte-aligned")))
+        (let ((nbytes (quotient nbits 8)))
+          (list->string
+           (map (lambda (k) (integer->char (logand (ash acc (- (* 8 (- nbytes 1 k)))) 255)))
+                (iota nbytes)))))))
+
+;; Read `width` bits from byte-string `s` starting at global bit offset
+;; `bit-off`, MSB-first within each byte, as an integer.
+(define (binary-bits-ref s bit-off width)
+  (let loop ((i 0) (acc 0))
+    (if (>= i width) acc
+        (let* ((p (+ bit-off i))
+               (byte (char->integer (string-ref s (quotient p 8))))
+               (bit (logand (ash byte (- (- 7 (modulo p 8)))) 1)))
+          (loop (+ i 1) (logior (ash acc 1) bit))))))
 
 ;; Turn an enumerable into a Scheme list of its elements (for comprehensions
 ;; and Enum).  Maps enumerate as {key, value} tuples.
