@@ -209,6 +209,43 @@ defmodule M do
 end
 M.run()")))
 
+     (deftest "trap_exit turns link death into a message"
+       (assert-equal 'trapped (ev "
+defmodule M do
+  def run() do
+    Process.flag(:trap_exit, true)
+    spawn_link(fn -> raise \"boom\" end)
+    receive do
+      {:EXIT, _pid, _reason} -> :trapped
+    end
+  end
+end
+M.run()")))
+
+     (deftest "supervisor restarts crashed child"
+       (assert-equal 'true (ev "
+defmodule W do
+  use GenServer
+  def start_link(parent) do
+    {:ok, pid} = GenServer.start_link(W, parent)
+    send(parent, {:started, pid})
+    {:ok, pid}
+  end
+  def init(p), do: {:ok, p}
+  def handle_cast(:crash, _s), do: raise \"boom\"
+end
+defmodule M do
+  def run() do
+    me = self()
+    {:ok, _sup} = Supervisor.start_link([{W, me}])
+    p1 = receive do {:started, pid} -> pid end
+    GenServer.cast(p1, :crash)
+    p2 = receive do {:started, pid} -> pid end
+    p1 != p2
+  end
+end
+M.run()")))
+
      (deftest "multiple workers fan-in"
        (assert-equal 6 (ev "
 defmodule W do

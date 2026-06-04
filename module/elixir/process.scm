@@ -21,6 +21,7 @@
   #:export (pid? pid-id make-initial-scheduler!
             ex-spawn ex-spawn-link ex-send ex-self ex-receive ex-sleep
             ex-link ex-monitor ex-process-exit process-exit-reason ex-make-ref
+            ex-trap-exit!
             run-scheduler run-until-idle process-alive?
             scheduler-step-count))
 
@@ -36,7 +37,7 @@
 
 (define-record-type <process>
   (%make-process id mailbox cont waiting? after-deadline resume pid
-                 links monitors alive? exit-reason)
+                 links monitors alive? exit-reason trap-exit?)
   process?
   (id process-id)
   (mailbox process-mailbox set-process-mailbox!)   ; list, FIFO
@@ -48,7 +49,8 @@
   (links process-links set-process-links!)          ; list of linked pids
   (monitors process-monitors set-process-monitors!) ; list of (ref . watcher-pid)
   (alive? process-alive-flag set-process-alive!)    ; #f once terminated
-  (exit-reason proc-reason set-proc-reason!))        ; 'normal or {:error, payload}
+  (exit-reason proc-reason set-proc-reason!)         ; 'normal or {:error, payload}
+  (trap-exit? process-trap-exit? set-process-trap-exit!)) ; convert exits to msgs
 
 ;;; ----------------------------------------------------------------------
 ;;; Scheduler state
@@ -84,8 +86,11 @@
 ;; A fresh, unique reference value (used by GenServer.call and monitors).
 (define (ex-make-ref) (make-tuple 'ref (fresh-id)))
 
+(define (ex-trap-exit! on?)
+  (let ((p (current-process))) (when p (set-process-trap-exit! p (and on? #t)))) on?)
+
 (define (ex-spawn thunk)
-  (let* ((p (%make-process (fresh-id) '() #f #f #f #f #f '() '() #t 'normal))
+  (let* ((p (%make-process (fresh-id) '() #f #f #f #f #f '() '() #t 'normal #f))
          (pid (make-pid (process-id p) p)))
     (set-process-pid! p pid)        ; one canonical pid per process
     ;; Run the body guarded: a crash terminates just this fiber (with the
@@ -175,13 +180,17 @@
                          (make-tuple 'DOWN (car m) 'process (process-pid p) reason)))
               (process-monitors p))
     (set-process-monitors! p '())
-    ;; propagate abnormal exits to linked processes
-    (unless (eq? reason 'normal)
-      (for-each (lambda (lpid)
-                  (let ((lp (pid-proc lpid)))
-                    (when (process-alive-flag lp)
-                      (terminate-proc! lp reason))))
-                (process-links p)))))
+    ;; propagate to linked processes: a trapping process gets an {:EXIT, ...}
+    ;; message; a non-trapping one is killed only on an abnormal exit.
+    (for-each (lambda (lpid)
+                (let ((lp (pid-proc lpid)))
+                  (when (process-alive-flag lp)
+                    (cond
+                     ((process-trap-exit? lp)
+                      (ex-send lpid (make-tuple 'EXIT (process-pid p) reason)))
+                     ((not (eq? reason 'normal))
+                      (terminate-proc! lp reason))))))
+              (process-links p))))
 
 ;; Mark a parked process runnable, resuming its continuation with `reason`
 ;; (either 'message or 'timeout) so `receive` knows what to do.

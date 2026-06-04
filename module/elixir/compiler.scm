@@ -306,6 +306,11 @@
                                   `(cons ,(compile-expr (car kv) ctx)
                                          ,(compile-expr (cdr kv) ctx)))
                                 pairs))))
+    ;; A trailing keyword list (e.g. `strategy: :one_for_one`) is an Elixir
+    ;; keyword list: a list of {:key, value} tuples.
+    (('kwlist pairs)
+     `(list ,@(map (lambda (kv) `(make-tuple ',(car kv) ,(compile-expr (cdr kv) ctx)))
+                   pairs)))
     (('map-update base pairs)
      `(ex-map-update ,(compile-expr base ctx)
                      (list ,@(map (lambda (kv)

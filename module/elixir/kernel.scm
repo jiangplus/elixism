@@ -34,6 +34,7 @@
   (install-tuple!)
   (install-process!)
   (install-genserver!)
+  (install-supervisor!)
   'ok)
 
 (define (defn mod name arity proc) (register-builtin! mod name arity proc))
@@ -362,7 +363,9 @@
   (defn 'Process 'link 1 (lambda (pid) (ex-link pid)))
   (defn 'Process 'monitor 1 (lambda (pid) (ex-monitor pid)))
   (defn 'Process 'exit 2 (lambda (pid reason) (ex-process-exit pid reason)))
-  (defn 'Process 'spawn_link 1 (lambda (f) (ex-spawn-link (lambda () (f))))))
+  (defn 'Process 'spawn_link 1 (lambda (f) (ex-spawn-link (lambda () (f)))))
+  (defn 'Process 'flag 2
+    (lambda (flag val) (if (eq? flag 'trap_exit) (->ex-bool (ex-trap-exit! (ex-truthy? val))) 'false))))
 
 ;;; ----------------------------------------------------------------------
 ;;; GenServer  (a synchronous/async server loop over the process primitives)
@@ -430,3 +433,48 @@
 
 (define (genserver-tagged? msg tag)
   (and (tuple? msg) (> (tuple-size msg) 0) (eq? (tuple-ref msg 0) tag)))
+
+;;; ----------------------------------------------------------------------
+;;; Supervisor  (a :one_for_one supervisor over child specs)
+;;;
+;;; Children is a list of {Module, arg} specs.  The supervisor traps exits,
+;;; starts each child via Module.start_link(arg) -> {:ok, pid}, and restarts
+;;; any child that exits (one_for_one: only the dead child is restarted).
+;;; ----------------------------------------------------------------------
+
+(define (install-supervisor!)
+  (defn 'Supervisor 'start_link 2
+    (lambda (children _opts)
+      (make-tuple 'ok (ex-spawn-link (lambda () (supervisor-run children))))))
+  (defn 'Supervisor 'start_link 1
+    (lambda (children)
+      (make-tuple 'ok (ex-spawn-link (lambda () (supervisor-run children)))))))
+
+(define (supervisor-run children)
+  (ex-trap-exit! #t)
+  (supervisor-loop (map start-child children)))
+
+;; start a child spec {Module, arg}; returns (cons pid spec)
+(define (start-child spec)
+  (let* ((mod (tuple-ref spec 0))
+         (arg (tuple-ref spec 1))
+         (r (ex-call-remote mod 'start_link (list arg))))
+    (cons (tuple-ref r 1) spec)))     ; {:ok, pid}
+
+(define (supervisor-loop kids)
+  (ex-receive
+   (lambda (msg)
+     (if (genserver-tagged? msg 'EXIT)
+         (lambda ()
+           (let* ((dead (tuple-ref msg 1))
+                  (spec (assoc-pid kids dead))
+                  (rest (filter (lambda (k) (not (ex-equal? (car k) dead))) kids)))
+             (if spec
+                 (supervisor-loop (cons (start-child spec) rest))  ; one_for_one
+                 (supervisor-loop rest))))
+         (lambda () (supervisor-loop kids))))
+   #f))
+
+(define (assoc-pid kids pid)
+  (let ((k (find (lambda (k) (ex-equal? (car k) pid)) kids)))
+    (and k (cdr k))))

@@ -150,6 +150,8 @@ M.even?(10)")))
      (deftest "Enum.chunk_every" (assert-equal "[[1, 2], [3]]" (ev* "Enum.chunk_every([1,2,3], 2)")))
      (deftest "Enum.zip" (assert-equal "[{1, :a}, {2, :b}]" (ev* "Enum.zip([1,2], [:a, :b])")))
      (deftest "Keyword.get" (assert-equal 2 (ev "Keyword.get([a: 1, b: 2], :b)")))
+     (deftest "trailing keyword args become a keyword list"
+       (assert-equal 'one (ev "Keyword.get([a: 1, strategy: :one], :strategy)")))
      (deftest "Keyword.put" (assert-equal 9 (ev "Keyword.get(Keyword.put([a: 1], :c, 9), :c)")))
      (deftest "Tuple.to_list" (assert-equal "[1, 2, 3]" (ev* "Tuple.to_list({1, 2, 3})")))
      (deftest "String.capitalize" (assert-equal "Hello" (ev "String.capitalize(\"hELLO\")")))

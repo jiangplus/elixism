@@ -97,6 +97,19 @@ with the returned state — relying on the same "recursion inside `receive`"
 correctness the scheduler guarantees. `use GenServer` is accepted and ignored;
 the user supplies the callbacks directly.
 
-These are the natural simplifications for a single-threaded Wasm guest. The
-cooperative model is a good fit: WebAssembly is single-threaded by default,
-and `receive` is a natural yield point.
+## trap_exit and Supervisor
+
+`Process.flag(:trap_exit, true)` flips a per-process flag. When a linked
+process dies, a trapping process receives an `{:EXIT, pid, reason}` *message*
+instead of being killed — the mechanism OTP supervisors rely on to survive
+child crashes.
+
+`Supervisor.start_link(children, opts)` spawn-links a fiber that traps exits,
+starts each `{Module, arg}` child via `Module.start_link(arg)`, and on an
+`{:EXIT, pid, reason}` restarts that child (`:one_for_one`: only the dead one).
+Because children are started *from within* the supervisor fiber, their
+`spawn_link` links them to the supervisor automatically.
+
+These simplifications suit a single-threaded Wasm guest. The cooperative model
+is a good fit: WebAssembly is single-threaded by default, and `receive` is a
+natural yield point.
