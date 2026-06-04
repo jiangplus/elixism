@@ -1,0 +1,24 @@
+module/elixir/compiler.scm
+  s_8e9977ffd5237f::t_61f3deafcec0b0 662-664,667
+wasm-node/bundle.scm
+  s_8e9977ffd5237f::t_d68772251e7952 147-155
+  s_8e9977ffd5237f::t_f8fa21d14feb10 16-22
+module/elixir/parser.scm
+  s_8e9977ffd5237f::t_799cec39a78cd7 220-241
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "088c6accb09fa78680805ffdc5bcdfc8bd52e4e1",
+  "prompts": {},
+  "sessions": {
+    "s_8e9977ffd5237f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa7bf6bc-f474-4925-a494-a8ea455f13a6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
