@@ -1,0 +1,49 @@
+module/elixir/runtime.scm
+  s_8e9977ffd5237f::t_7f407700e52ef0 1
+overview.md
+  s_8e9977ffd5237f::t_eb411fcf73c484 6,53
+README.md
+  s_8e9977ffd5237f::t_eb411fcf73c484 2,44
+wasm-node/README.md
+  s_8e9977ffd5237f::t_eb411fcf73c484 2,4,6,10,33,52,56
+wasm-node/build.sh
+  s_8e9977ffd5237f::t_eb411fcf73c484 2,9
+Makefile
+  s_8e9977ffd5237f::t_7f407700e52ef0 2,14
+wasm-node/bundle.scm
+  s_8e9977ffd5237f::t_eb411fcf73c484 1
+bin/exc
+  s_8e9977ffd5237f::t_7f407700e52ef0 3,33
+wasm-node/package.json
+  s_8e9977ffd5237f::t_eb411fcf73c484 2,5
+manifest.scm
+  s_8e9977ffd5237f::t_7f407700e52ef0 2
+web/index.html
+  s_8e9977ffd5237f::t_7f407700e52ef0 6,17
+test/harness.scm
+  s_8e9977ffd5237f::t_7f407700e52ef0 1
+web/boot.js
+  s_8e9977ffd5237f::t_7f407700e52ef0 2
+module/elixir/eval.scm
+  s_8e9977ffd5237f::t_7f407700e52ef0 1
+module/elixir/corelib.scm
+  s_8e9977ffd5237f::t_eb411fcf73c484 5
+wasm-node/run.js
+  s_8e9977ffd5237f::t_eb411fcf73c484 1,17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "f1516bd61615bb036e158794a9c4d0d3bb17732d",
+  "prompts": {},
+  "sessions": {
+    "s_8e9977ffd5237f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa7bf6bc-f474-4925-a494-a8ea455f13a6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
