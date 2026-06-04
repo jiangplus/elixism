@@ -1,0 +1,26 @@
+wasm-node/README.md
+  s_8e9977ffd5237f::t_0e4459863a2f74 21-22,30-38
+wasm-node/build.sh
+  s_8e9977ffd5237f::t_c1b86db8e77c18 11-12,14-16
+  s_8e9977ffd5237f::t_d3a4f925c6d79a 34-41
+wasm-node/run.js
+  s_8e9977ffd5237f::t_de90808c6ccf7c 6-16
+README.md
+  s_8e9977ffd5237f::t_5b09db6016284a 108-118,121,124
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "b8f7b15be95de24191b55b77205c7435617e04f4",
+  "prompts": {},
+  "sessions": {
+    "s_8e9977ffd5237f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa7bf6bc-f474-4925-a494-a8ea455f13a6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
