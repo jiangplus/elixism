@@ -20,9 +20,12 @@ help:
 	@echo "make clean   - remove compiled caches"
 
 # Precompile the runtime modules into Guile's bytecode cache.  Without this the
-# modules still auto-compile on first use; this just front-loads it so the first
-# `exc`/`make test` run is not slowed by compilation.
+# modules still auto-compile on first use; this just front-loads it.  We drop
+# this project's cached .go first so all modules recompile together: Guile's
+# auto-compile keys staleness on each file's own mtime, so editing a module that
+# others *inline* from (e.g. dispatch) would otherwise leave stale dependents.
 build:
+	@rm -f "$(HOME)/.cache/guile/ccache/"*"$(CURDIR)/module/elixir/"*.go 2>/dev/null || true
 	@$(GUILE) -L module -c '(use-modules (elixir eval) (elixir kernel) (elixir compiler))' \
 	  && echo "runtime modules compiled to Guile bytecode cache"
 

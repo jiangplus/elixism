@@ -21,7 +21,11 @@
             ;; for Kernel registration:
             *registry* register-builtin!))
 
-;; module-sym -> hashtable of (name . arity) -> (cons kind proc)
+;; module-sym -> (eq? hashtable of name-sym -> alist of (arity . proc)).
+;; Symbol keys use eq? hashing (hashq*) and the arity is matched with assv on a
+;; tiny alist, so a call resolves with no per-lookup allocation -- unlike a
+;; combined (cons name arity) key, which would allocate and equal?-hash a pair
+;; on every call.
 (define *registry* (make-hash-table))
 
 ;; The module in whose body the currently-running code was defined.
@@ -80,13 +84,19 @@
           base overrides)))
 
 (define (register-module! mod)
-  (unless (hash-ref *registry* mod)
-    (hash-set! *registry* mod (make-hash-table)))
+  (unless (hashq-ref *registry* mod)
+    (hashq-set! *registry* mod (make-hash-table)))
   mod)
 
+;; `kind` (def/defp) is accepted for API compatibility but not stored -- nothing
+;; reads it.  Re-registering an arity replaces the previous proc.
 (define (register-function! mod name arity kind proc)
   (register-module! mod)
-  (hash-set! (hash-ref *registry* mod) (cons name arity) (cons kind proc))
+  (let* ((tbl (hashq-ref *registry* mod))
+         (cur (hashq-ref tbl name '())))
+    (hashq-set! tbl name
+                (cons (cons arity proc)
+                      (filter (lambda (e) (not (eqv? (car e) arity))) cur))))
   mod)
 
 ;; Convenience for Kernel/Enum/etc. implemented in Scheme.
@@ -94,9 +104,9 @@
   (register-function! mod name arity 'def proc))
 
 (define (lookup-function mod name arity)
-  (let ((tbl (hash-ref *registry* mod)))
+  (let ((tbl (hashq-ref *registry* mod)))
     (and tbl
-         (let ((entry (hash-ref tbl (cons name arity))))
+         (let ((entry (assv arity (hashq-ref tbl name '()))))
            (and entry (cdr entry))))))
 
 (define (function-defined? mod name arity)
@@ -104,25 +114,22 @@
 
 (define (ex-apply proc args) (apply proc args))
 
-;; Local call: try the current module, then Kernel.
+;; Local call: try the current module, then Kernel.  The hot path avoids any
+;; per-call allocation: no and=> closures, just a lookup and an apply.
 (define (ex-call-local mod name args)
   (reduce!)                              ; reduction-counted pre-emption
-  (let ((arity (length args)))
-    (or (and=> (lookup-function mod name arity)
-              (lambda (p) (apply p args)))
-        (and=> (lookup-function 'Kernel name arity)
-              (lambda (p) (apply p args)))
-        (ex-undefined mod name arity))))
+  (let* ((arity (length args))
+         (p (or (lookup-function mod name arity)
+                (lookup-function 'Kernel name arity))))
+    (if p (apply p args) (ex-undefined mod name arity))))
 
 ;; Remote call: Mod.fun(args), with Kernel fallback for built-ins.
 (define (ex-call-remote mod name args)
   (reduce!)
-  (let ((arity (length args)))
-    (or (and=> (lookup-function mod name arity)
-              (lambda (p) (apply p args)))
-        (and=> (lookup-function 'Kernel name arity)
-              (lambda (p) (apply p args)))
-        (ex-undefined mod name arity))))
+  (let* ((arity (length args))
+         (p (or (lookup-function mod name arity)
+                (lookup-function 'Kernel name arity))))
+    (if p (apply p args) (ex-undefined mod name arity))))
 
 (define (and=> v proc) (and v (proc v)))
 
