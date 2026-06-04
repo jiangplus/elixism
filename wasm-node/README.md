@@ -18,14 +18,24 @@ runtime+dispatch+kernel+corelib (host) ─────────────�
 
 ## Run it
 
-Requires Node 22+ and the Hoot toolchain (a bleeding-edge Guile built from
-`main`; see `../../hoot`). With the sibling `../../hoot` checkout built:
+Requires Node 22+ and the Hoot toolchain (tested with **Hoot 0.9.0**; build
+the sibling `../../hoot` checkout with `make`).
 
 ```sh
 ./build.sh          # bundle + compile to program.wasm + copy Hoot JS runtime
 node run.js         # load program.wasm and run the Elixir tests
 # or: npm run build && npm test
 ```
+
+Two Hoot-0.9 details, both handled automatically:
+
+- **`hoot compile` vs `guild compile-wasm`.** 0.9 prefers the new `hoot compile`
+  CLI, but it eagerly loads Hoot's web server, which needs `guile-fibers`. If
+  that isn't installed, `build.sh` falls back to the `guild compile-wasm`
+  subcommand (which has no such dependency).
+- **Wasm exnref.** 0.9 output uses the exception-handling (`exnref`) opcodes,
+  which V8 gates behind a flag; `run.js` re-execs Node with
+  `--experimental-wasm-exnref`, so plain `node run.js` just works.
 
 Expected output:
 

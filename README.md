@@ -105,19 +105,23 @@ got pong!
 
 ## Compiling to WebAssembly
 
-The host path above is fully working and tested. The Wasm path needs the Hoot
-toolchain, which requires a **bleeding-edge Guile built from `main`** (Hoot is
-itself bleeding edge — see `../hoot`). With Hoot available:
+The host path above is fully working and tested. The Wasm path uses the
+[Guile Hoot](https://spritely.institute/hoot/) toolchain (tested with **Hoot
+0.9.0**; see `../hoot`).
+
+**Proven end-to-end:** [`wasm-node/`](wasm-node/) compiles the standard library
+to Wasm and runs a 54-check Elixir test program under Node.js — `cd wasm-node
+&& ./build.sh && node run.js` prints `54/54 passed`. See its README for the
+pipeline and the two Hoot-0.9 details it handles (the `hoot compile` ↔
+`guild compile-wasm` fallback, and the `exnref` Node flag).
+
+A quick single-file path also exists:
 
 ```sh
-make wasm F=examples/fib.ex HOOT_DIR=../hoot
-# -> build/fib.scm  (a self-contained Hoot program)
-# -> build/fib.wasm (if the Hoot toolchain is found)
+make wasm F=examples/fib.ex HOOT_DIR=../hoot   # -> build/fib.scm, build/fib.wasm
 ```
 
-`make wasm` emits a Hoot program that imports the runtime modules and runs the
-compiled Elixir inside a root fiber, then invokes `guild compile-wasm`. The
-browser harness in [`web/`](web/) boots the `.wasm` and wires up `IO.puts`.
+The browser harness in [`web/`](web/) boots a `.wasm` and wires up `IO.puts`.
 See [design/gc.md](design/gc.md) for how Elixir values use Wasm GC and
 [design/processes.md](design/processes.md) for how the scheduler maps onto
 `(hoot scheduler)`.

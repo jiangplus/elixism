@@ -3,8 +3,17 @@
 //
 //   node run.js
 //
-// Loads program.wasm via Hoot's reflect.js, provides the `host.print` import
-// the Elixir program calls with its summary, and exits non-zero on any failure.
+// Hoot 0.9+ emits the Wasm exception-handling (exnref) opcodes, which V8 needs
+// a flag for; we re-exec ourselves with it so plain `node run.js` works.
+const EXNREF = "--experimental-wasm-exnref";
+if (!process.execArgv.includes(EXNREF)) {
+  const { spawnSync } = require("child_process");
+  const r = spawnSync(process.execPath, [EXNREF, __filename], { stdio: "inherit" });
+  process.exit(r.status ?? 1);
+}
+
+// Load program.wasm via Hoot's reflect.js, provide the `host.print` import the
+// Elixir program calls with its summary, and exit non-zero on any failure.
 const { Scheme } = require("./reflect.js");
 
 async function main() {

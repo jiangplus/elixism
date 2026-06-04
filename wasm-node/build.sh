@@ -8,8 +8,12 @@
 # Pipeline:
 #   1. bundle.scm flattens the elixism runtime + AOT-compiles the Elixir
 #      program into one self-contained Hoot Scheme program (program.scm).
-#   2. Hoot's `guild compile-wasm` compiles that to program.wasm.
+#   2. Hoot compiles that to program.wasm: `hoot compile` (Hoot 0.9+, preferred)
+#      when usable, else the `guild compile-wasm` subcommand.
 #   3. Hoot's JS runtime (reflect.js + reflect.wasm + wtf8.wasm) is copied in.
+#
+# Tested with Hoot 0.9.0. Note Hoot 0.9 output uses the Wasm exnref opcodes;
+# run.js re-execs Node with --experimental-wasm-exnref automatically.
 set -e
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -27,7 +31,14 @@ echo "==> Bundling runtime + $(basename "$PROG") -> program.scm"
 ( cd "$ROOT" && guile -L module --no-auto-compile wasm-node/bundle.scm "$PROG" ) > "$HERE/program.scm"
 
 echo "==> Compiling program.scm -> program.wasm (Hoot)"
-"$HOOT_DIR/pre-inst-env" guild compile-wasm -o "$HERE/program.wasm" "$HERE/program.scm"
+# Prefer the Hoot 0.9 `hoot compile` CLI; fall back to `guild compile-wasm`
+# (the `hoot` CLI eagerly loads the web server, which needs guile-fibers).
+if "$HOOT_DIR/pre-inst-env" hoot compile -o "$HERE/program.wasm" "$HERE/program.scm" 2>/dev/null; then
+  echo "    (via: hoot compile)"
+else
+  "$HOOT_DIR/pre-inst-env" guild compile-wasm -o "$HERE/program.wasm" "$HERE/program.scm"
+  echo "    (via: guild compile-wasm)"
+fi
 
 echo "==> Copying Hoot JS runtime"
 cp "$HOOT_DIR/reflect-js/reflect.js"   "$HERE/"
