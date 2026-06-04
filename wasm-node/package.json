@@ -1,0 +1,11 @@
+{
+  "name": "elixir-hoot-wasm-node",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Run the elixir-hoot standard library compiled to WebAssembly under Node.js",
+  "license": "Apache-2.0",
+  "scripts": {
+    "build": "./build.sh",
+    "test": "node run.js"
+  }
+}

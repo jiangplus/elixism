@@ -49,3 +49,8 @@ wasm:
 clean:
 	rm -rf build $(HOME)/.cache/guile/ccache 2>/dev/null || true
 	find . -name '*.go' -delete 2>/dev/null || true
+
+# --- WebAssembly + Node.js demo ------------------------------------------
+# Build the stdlib to wasm and run it under Node (needs $HOOT_DIR + Node 22+).
+wasm-node:
+	cd wasm-node && ./build.sh && node run.js
