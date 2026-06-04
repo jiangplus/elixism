@@ -53,8 +53,12 @@
 ;; value of the program's final top-level expression.
 (define (elixir-run src)
   (ensure-installed!)
-  (let ((thunk (compile-to-thunk (elixir-compile src)))
-        (result (list #f)))
-    (ex-spawn (lambda () (set-car! result (thunk))))
+  (let* ((thunk (compile-to-thunk (elixir-compile src)))
+         (result (list #f))
+         (root (ex-spawn (lambda () (set-car! result (thunk))))))
     (run-scheduler)
-    (car result)))
+    ;; If the root process crashed (uncaught raise), surface it to the host.
+    (let ((reason (process-exit-reason root)))
+      (if (and (tuple? reason) (eq? (tuple-ref reason 0) 'error))
+          (ex-raise (tuple-ref reason 1))
+          (car result)))))

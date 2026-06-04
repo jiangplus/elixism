@@ -65,8 +65,25 @@ them simply end the run (the BEAM would leave them blocked forever).
 | pre-emptive, reduction-counted scheduling | cooperative; fibers yield only at `receive`/`sleep` |
 | per-process isolated heaps | one shared heap (see [gc.md](gc.md)) |
 | real timers | logical clock |
-| links, monitors, `Process.exit` | not yet implemented |
+| `trap_exit`, named processes, registries | not yet implemented |
 | multicore run queues | single run queue |
+
+## Crash handling, links, and monitors
+
+Each fiber runs its body under an exception handler: an uncaught `raise`
+terminates **only that fiber** with reason `{:error, payload}` (a normal return
+is reason `:normal`), and the scheduler keeps going. On termination a process:
+
+* sends every monitor a `{:DOWN, ref, :process, pid, reason}` message
+  (`Process.monitor/1` returns the `ref`; a dead target fires `:DOWN` with
+  `:noproc` immediately), and
+* propagates an **abnormal** exit to every linked process (`spawn_link`,
+  `Process.link/1`), terminating them with the same reason — which cascades
+  through the link set.
+
+The root process created by `elixir-run` is special: if it dies abnormally,
+its reason is re-raised into the host so the CLI and test suite see the error
+rather than silently getting `nil`.
 
 These are the natural simplifications for a single-threaded Wasm guest. The
 cooperative model is a good fit: WebAssembly is single-threaded by default,

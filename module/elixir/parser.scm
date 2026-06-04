@@ -272,8 +272,10 @@
   (let loop ((pairs '()))
     (skip-newlines! c)
     (if (at? c 'kwident)
+        ;; Values parse at statement level so `do: raise "x"` / `do: IO.puts m`
+        ;; recognise no-parens calls.
         (let* ((key (token-value (advance! c)))
-               (val (parse-expr c 0)))
+               (val (parse-stmt c)))
           (skip-newlines! c)
           (if (at? c 'comma)
               (begin (advance! c) (loop (cons (cons key val) pairs)))
@@ -617,9 +619,11 @@
         (let ((s (parse-stmt c)))
           (loop (cons s stmts))))))
 
-;; Heuristic: are we at the start of a new stab clause? (lookahead for ->)
+;; Heuristic: are we at the start of a new stab clause? (lookahead for a
+;; top-level `->` before this logical line ends).  Tracks both bracket depth
+;; and do/fn..end block depth so a nested `receive do _ -> .. end` inside a
+;; clause body isn't misread as a new clause.
 (define (clause-ahead? c)
-  ;; scan forward on the current logical line for a top-level ->
   (let ((v (cur-vec c)))
     (let loop ((i (cur-pos c)) (depth 0))
       (if (>= i (vector-length v)) #f
@@ -631,6 +635,11 @@
               ((rparen rbracket rbrace) (if (= depth 0) #f (loop (+ i 1) (- depth 1))))
               ((op) (if (and (= depth 0) (string=? (token-value t) "->")) #t
                         (loop (+ i 1) depth)))
+              ((ident)
+               (case (token-value t)
+                 ((do fn) (loop (+ i 1) (+ depth 1)))
+                 ((end) (if (= depth 0) #f (loop (+ i 1) (- depth 1))))
+                 (else (loop (+ i 1) depth))))
               (else (loop (+ i 1) depth))))))))
 
 (define (parse-if c)

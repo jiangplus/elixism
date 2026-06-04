@@ -109,6 +109,67 @@ defmodule M do
 end
 M.run()")))
 
+     (deftest "monitor receives DOWN on crash"
+       (assert-equal 'down (ev "
+defmodule W do
+  def go(), do: raise \"boom\"
+end
+defmodule M do
+  def run() do
+    pid = spawn(fn -> W.go() end)
+    ref = Process.monitor(pid)
+    receive do
+      {:DOWN, ^ref, :process, _p, _reason} -> :down
+    end
+  end
+end
+M.run()")))
+
+     (deftest "monitor reports crash reason"
+       (assert-equal "boom" (ev "
+defmodule W do
+  def go(), do: raise \"boom\"
+end
+defmodule M do
+  def run() do
+    pid = spawn(fn -> W.go() end)
+    ref = Process.monitor(pid)
+    receive do
+      {:DOWN, ^ref, :process, _p, {:error, msg}} -> msg
+    end
+  end
+end
+M.run()")))
+
+     (deftest "spawn_link propagates crash"
+       (assert-equal 'propagated (ev "
+defmodule M do
+  def run() do
+    p = spawn(fn ->
+      spawn_link(fn -> raise \"x\" end)
+      receive do _ -> :never end
+    end)
+    ref = Process.monitor(p)
+    receive do
+      {:DOWN, ^ref, :process, _, _} -> :propagated
+    end
+  end
+end
+M.run()")))
+
+     (deftest "Process.alive? after normal exit"
+       (assert-equal 'false (ev "
+defmodule M do
+  def run() do
+    me = self()
+    p = spawn(fn -> send(me, :ready) end)
+    receive do :ready -> :ok end
+    Process.sleep(1)
+    Process.alive?(p)
+  end
+end
+M.run()")))
+
      (deftest "multiple workers fan-in"
        (assert-equal 6 (ev "
 defmodule W do
