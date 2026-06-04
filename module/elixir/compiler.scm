@@ -224,6 +224,7 @@
              (if tail (pattern-vars tail) '())))
     (('map pairs) (append-map (lambda (kv) (pattern-vars (cdr kv))) pairs))
     (('struct _ pairs) (append-map (lambda (kv) (pattern-vars (cdr kv))) pairs))
+    (('binary segs) (append-map (lambda (s) (match s (('bseg e _) (pattern-vars e)))) segs))
     (('binop "<>" _ rest) (pattern-vars rest))
     (('match a b) (append (pattern-vars a) (pattern-vars b)))
     (('unop "^" _) '())
@@ -263,7 +264,40 @@
                       `(and (emap-has-key? ,subj ,k)
                             ,(compile-pattern (cdr kv) `(emap-ref ,subj ,k 'nil) fail))))
                   pairs)))
+    (('binary segs) (compile-binary-pattern segs subj))
+    ;; string prefix match:  "GET " <> rest = request
+    (('binop "<>" ('string prefix) rest)
+     (let ((n (string-length prefix)))
+       `(and (string? ,subj) (>= (string-length ,subj) ,n)
+             (string=? (substring ,subj 0 ,n) ,prefix)
+             ,(compile-pattern rest `(substring ,subj ,n (string-length ,subj)) fail))))
     (_ `(ex-equal? ,subj ,(compile-expr pat 'module)))))
+
+;; Binaries are codepoint strings: each non-binary segment consumes exactly
+;; one codepoint (size specifiers are not honoured), and a trailing
+;; `var::binary` binds the remainder.  An unsized binary must come last.
+(define (compile-binary-pattern segs subj)
+  (let* ((rev (reverse segs))
+         (last-seg (and (pair? rev) (car rev)))
+         (rest-bind (and last-seg (binary-rest-seg last-seg)))
+         (fixed (if rest-bind (reverse (cdr rev)) segs))
+         (n (length fixed)))
+    `(and (string? ,subj)
+          ,(if rest-bind `(>= (string-length ,subj) ,n) `(= (string-length ,subj) ,n))
+          ,@(map (lambda (seg i)
+                   (match seg
+                     (('bseg e _)
+                      (compile-pattern e `(char->integer (string-ref ,subj ,i)) #f))))
+                 fixed (iota n))
+          ,(if rest-bind
+               (compile-pattern rest-bind `(substring ,subj ,n (string-length ,subj)) #f)
+               #t))))
+
+;; If a segment is `var::binary` (the rest-binder), return the inner pattern.
+(define (binary-rest-seg seg)
+  (match seg
+    (('bseg e type) (and (memq type '(binary bitstring bytes)) e))
+    (_ #f)))
 
 (define (compile-list-pattern elts tail subj)
   (if (null? elts)
@@ -301,6 +335,12 @@
     (('block stmts) (compile-block stmts ctx))
     (('list elts tail) (compile-list elts tail ctx))
     (('tuple elts) `(make-tuple ,@(map (lambda (x) (compile-expr x ctx)) elts)))
+    (('binary segs)
+     `(string-append
+       ,@(map (lambda (s)
+                (match s (('bseg e type)
+                          `(ex-bin-seg ,(compile-expr e ctx) ',type))))
+              segs)))
     (('map pairs)
      `(alist->emap (list ,@(map (lambda (kv)
                                   `(cons ,(compile-expr (car kv) ctx)

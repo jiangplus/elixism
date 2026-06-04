@@ -20,7 +20,8 @@ stock Guile (how the tests run) or hands it to Hoot to produce WebAssembly.
   strings with `#{}` interpolation, charlists, char literals (`?a`), lists,
   tuples, maps (incl. update `%{m | k: v}`), ranges.
 * **Pattern matching** — in `=`, function heads, `case`, `fn`, `receive`,
-  `for`, `with`; tuples, lists/cons, maps, literals, pins, wildcards, guards.
+  `for`, `with`; tuples, lists/cons, maps, binaries (`<<a, rest::binary>>`),
+  string prefixes (`"GET " <> path`), literals, pins, wildcards, guards.
 * **Functions & modules** — `defmodule`, `def`/`defp`, multi-clause dispatch,
   guards, recursion, mutual recursion, **default arguments** (`\\`), default
   auto-imported `Kernel`.
@@ -46,16 +47,18 @@ stock Guile (how the tests run) or hands it to Hoot to produce WebAssembly.
   with `init`/`handle_call`/`handle_cast`/`handle_info` and held state;
   `Supervisor.start_link` with `:one_for_one` restart and `trap_exit`.
 
-Not yet: binary pattern-matching, `:one_for_all`/`:rest_for_one` strategies,
-named processes, true pre-emption. The architecture is built to grow into
-these — see the design docs.
+Binaries are modelled as codepoint strings, so `<<>>` segment size specifiers
+(`x::16`) are parsed but not honoured — each non-binary segment is one
+codepoint. Not yet: bit-level binaries, `:one_for_all`/`:rest_for_one`
+strategies, named processes, true pre-emption. The architecture is built to
+grow into these — see the design docs.
 
 ## Quick start
 
 Needs a stock **Guile 3** (`brew install guile` / `apt install guile-3.0`).
 
 ```sh
-make test                      # run the full suite (192 tests)
+make test                      # run the full suite (198 tests)
 ./bin/exc run examples/fib.ex  # compile & run an .ex file on the host VM
 ./bin/exc eval '1..10 |> Enum.sum()'
 ./bin/exc repl                 # interactive REPL
@@ -123,7 +126,7 @@ module/elixir/
   kernel.scm     the Scheme-implemented standard library
   eval.scm       host backend: compile -> bytecode -> run
 bin/exc          CLI: run / eval / compile / wasm / repl
-test/            192 tests across lexer, parser, runtime, integration, process
+test/            198 tests across lexer, parser, runtime, integration, process
 design/          abi.md, processes.md, gc.md
 examples/        sample .ex programs
 ```
@@ -134,7 +137,7 @@ examples/        sample .ex programs
 make test
 ```
 
-192 tests: `test-lexer`, `test-parser`, `test-runtime` (value model),
+198 tests: `test-lexer`, `test-parser`, `test-runtime` (value model),
 `test-integration` (full programs end-to-end), `test-process` (concurrency).
 Because the compiler targets plain Scheme, the entire suite runs on stock
 Guile 3 — only final Wasm emission needs Hoot.

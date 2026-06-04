@@ -16,7 +16,7 @@ generated-at: 2026-06-04T00:00:00Z
 | Targets | host Guile VM (tested) + WebAssembly via [Hoot](https://spritely.institute/hoot/) |
 | License | Apache 2.0 |
 | Core size | ~2,700 lines (8 modules) + ~480 lines of tests |
-| Tests | 192, all passing on stock Guile 3 |
+| Tests | 198, all passing on stock Guile 3 |
 
 No BEAM, no Erlang. The lexer, parser, and compiler are written entirely in
 Scheme. The compiler is a **pure function** from Elixir source to Scheme
@@ -61,7 +61,7 @@ elixir-hoot/
 │   ├── kernel.scm     # stdlib + GenServer (Kernel/Enum/Map/String/Process/…)
 │   └── eval.scm       # host backend: compile emitted Scheme to bytecode + run
 ├── bin/exc            # CLI: run | eval | compile | wasm | repl
-├── test/              # harness + 5 suites (192 tests)
+├── test/              # harness + 5 suites (198 tests)
 ├── design/            # abi.md, processes.md, gc.md
 ├── examples/          # fib, pingpong, pipeline, comprehension
 ├── web/               # browser harness (index.html + boot.js)
@@ -109,7 +109,7 @@ order). See [design/processes.md](design/processes.md).
 ## Key Features
 
 - Pattern matching everywhere (`=`, heads, `case`, `fn`, `receive`, `for`,
-  `with`) with guards, pins, tuple/list/map/literal patterns.
+  `with`) with guards, pins, tuple/list/map/binary/string-prefix patterns.
 - Multi-clause functions, recursion, mutual recursion, **default arguments**
   (`\\`), auto-imported `Kernel`.
 - Anonymous functions (multi-clause), closures, `&`/`&1` captures.
@@ -146,6 +146,6 @@ order). See [design/processes.md](design/processes.md).
 
 ## Not Yet Implemented
 
-binary pattern-matching, named processes, true pre-emption. The
+bit-level binaries, named processes, true pre-emption. The
 architecture is built to grow into these; each has a clear home in the
 existing modules.

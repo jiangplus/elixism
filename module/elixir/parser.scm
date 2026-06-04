@@ -107,7 +107,7 @@
       ((ident) (not (memq (token-value t)
                           '(do end else rescue after catch when in and or not
                             fn true false nil))))
-      ((op) (member (token-value t) '("&" "@")))
+      ((op) (member (token-value t) '("&" "@" "<<")))
       (else #f))))
 
 (define (parse-no-paren-args c)
@@ -301,8 +301,39 @@
       ((percent) (parse-map c))
       ((alias) (parse-alias c))
       ((ident) (parse-ident-form c))
+      ((op) (if (string=? (token-value t) "<<") (parse-binary c)
+                (error "elixir parser: unexpected operator"
+                       (token-value t) 'at-line (token-line t))))
       (else (error "elixir parser: unexpected token"
                    (token-type t) (token-value t) 'at-line (token-line t))))))
+
+;; Binary / bitstring:  << seg, seg, ... >>  where each seg is
+;; expr or expr::typespec (typespec: binary | integer | utf8 | float | size-int).
+(define (parse-binary c)
+  (expect-op! c "<<")
+  (skip-newlines! c)
+  (if (at-op? c ">>")
+      (begin (advance! c) `(binary ()))
+      (let loop ((segs '()))
+        (let ((seg (parse-bin-segment c)))
+          (skip-newlines! c)
+          (cond
+           ((at? c 'comma) (advance! c) (skip-newlines! c) (loop (cons seg segs)))
+           (else (expect-op! c ">>") `(binary ,(reverse (cons seg segs)))))))))
+
+(define (parse-bin-segment c)
+  (let ((e (parse-expr c 111)))   ; above :: so the spec isn't consumed
+    (if (at-op? c "::")
+        (begin (advance! c) `(bseg ,e ,(parse-bin-type c)))
+        `(bseg ,e #f))))
+
+;; A type spec: an ident (binary/integer/utf8/float/...) or a size integer.
+;; Compound specs (`integer-size(8)`) collapse to their leading token here.
+(define (parse-bin-type c)
+  (cond
+   ((at? c 'ident) (token-value (advance! c)))
+   ((at? c 'int)   (token-value (advance! c)))
+   (else (parse-expr c 111))))
 
 ;; Sigils.  ~w/~W word lists (modifier a -> atoms, c -> charlists), ~s strings,
 ;; ~c charlists, ~r regex (a minimal {Regex, pattern} value).

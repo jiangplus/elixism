@@ -158,6 +158,22 @@ M.even?(10)")))
      (deftest "String.starts_with?" (assert-equal 'true (ev "String.starts_with?(\"hello\", \"he\")")))
      (deftest "List.delete_at" (assert-equal "[1, 3]" (ev* "List.delete_at([1,2,3], 1)")))
 
+     ;; --- binaries & string-prefix matching ---
+     (deftest "binary from codepoints" (assert-equal "hi" (ev "<<104, 105>>")))
+     (deftest "binary string segments" (assert-equal "abcdef" (ev "<<\"abc\", \"def\">>")))
+     (deftest "binary destructure" (assert-equal 66 (ev "<<_x, y>> = <<65, 66>>\ny")))
+     (deftest "binary rest::binary"
+       (assert-equal "{72, \"i\"}" (ev* "case <<72, 105>> do\n<<f, rest::binary>> -> {f, rest}\nend")))
+     (deftest "string prefix match"
+       (assert-equal "/x" (ev "defmodule P do\ndef path(\"GET \" <> p), do: p\nend\nP.path(\"GET /x\")")))
+     (deftest "string prefix dispatch"
+       (assert-equal 'post (ev "
+defmodule P do
+  def m(\"GET \" <> _), do: :get
+  def m(\"POST \" <> _), do: :post
+end
+P.m(\"POST /y\")")))
+
      ;; --- with/else ---
      (deftest "with else routes failure"
        (assert-equal 'not_positive (ev "with {:ok, x} <- {:ok, -1}, true <- x > 0 do\n:ok\nelse\nfalse -> :not_positive\nend")))

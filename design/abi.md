@@ -16,7 +16,7 @@ emitted Scheme uses only the runtime API, so the *same* output runs two ways:
 | float              | flonum                             | `/` always yields a float |
 | atom `:foo`        | symbol `foo`                       | interned |
 | `true`/`false`/`nil` | symbols `true`/`false`/`nil`     | Elixir booleans are atoms |
-| string (binary)    | Scheme string                      | UTF-8 |
+| string / binary    | Scheme string                      | UTF-8; `<<>>` is also a string |
 | charlist `'abc'`   | list of codepoints                 | |
 | list `[…]`         | Scheme list (`[]` → `'()`)         | proper match for cons cells |
 | tuple `{…}`        | `<tuple>` record over a vector     | distinct from list |
@@ -57,6 +57,13 @@ path branch-only with no allocation.
 A `pat = expr` statement scopes its bound variables over the **rest of the
 enclosing block**, so block compilation nests `let`s rather than emitting a
 flat `begin`.
+
+**Binaries** are modelled as codepoint strings, so `<<>>` patterns compile to
+string operations: each non-binary segment consumes exactly one codepoint
+(`string-ref` at a compile-time-known index — size specifiers like `::16` are
+parsed but ignored), and a trailing `var::binary` binds the remaining
+substring. The common string-prefix idiom `"GET " <> rest = req` compiles to a
+`string-prefix?` test plus a `substring` bind.
 
 ## What the Wasm backend adds
 

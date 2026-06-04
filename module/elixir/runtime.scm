@@ -40,7 +40,7 @@
             ex-< ex-> ex-<= ex->= ex-== ex-!= ex-and ex-or
             ex-++ ex-<> ex-in?
             ex-range ex-list-difference string->charlist charlist->string
-            ex-enumerate ex-into
+            ex-enumerate ex-into ex-bin-seg
             ;; inspection
             inspect ex->display
             ;; errors
@@ -233,6 +233,15 @@
 
 (define (string->charlist s) (map char->integer (string->list s)))
 (define (charlist->string cl) (list->string (map integer->char cl)))
+
+;; One segment of a `<<>>` binary, rendered to a string (binaries are modelled
+;; as codepoint strings here -- see design/abi.md).  `binary`/`bitstring` keep
+;; a string value; everything else is an integer codepoint/byte.
+(define (ex-bin-seg value type)
+  (case type
+    ((binary bitstring bytes) value)
+    ((utf8 utf16 utf32) (string (integer->char value)))
+    (else (if (string? value) value (string (integer->char value))))))
 
 ;; Turn an enumerable into a Scheme list of its elements (for comprehensions
 ;; and Enum).  Maps enumerate as {key, value} tuples.
