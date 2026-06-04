@@ -1,0 +1,119 @@
+examples/pingpong.ex
+  s_8e9977ffd5237f::t_33c33008a10325 1-20
+module/elixir/kernel.scm
+  s_8e9977ffd5237f::t_0cb5b6b5a66fb8 1-227
+test/test-integration.scm
+  s_8e9977ffd5237f::t_ac1ec42def63f9 1-97,102-121
+  s_8e9977ffd5237f::t_80d2543682a236 98-99
+  s_8e9977ffd5237f::t_942b6257079577 100-101
+bin/exc
+  s_8e9977ffd5237f::t_ee30f7f59f45ee 15,27,29-43
+  s_8e9977ffd5237f::t_dfd9c2d4fe1e59 1-14,16-26,28,44-65
+module/elixir/eval.scm
+  s_8e9977ffd5237f::t_9b66c43c9a7a42 16
+  s_8e9977ffd5237f::t_8903fe608c2063 36-45,48,50,56,58
+  s_8e9977ffd5237f::t_049da39d1606a0 1-15,17-35,46-47,49,53-55,59
+  s_8e9977ffd5237f::t_1dc4c2a35ba93a 51-52,57,60
+test/test-runtime.scm
+  s_8e9977ffd5237f::t_316f8374d25c26 1-52
+web/boot.js
+  s_8e9977ffd5237f::t_b01d493dd9bcfc 1-27
+overview.md
+  s_8e9977ffd5237f::t_3423ae5b4bdfe5 1-141
+test/harness.scm
+  s_8e9977ffd5237f::t_e930e5b141136e 1-57
+web/index.html
+  s_8e9977ffd5237f::t_c3999ab1f94e0e 1-21
+.gitignore
+  s_8e9977ffd5237f::t_5ff0e49500d964 1-8
+module/elixir/parser.scm
+  s_8e9977ffd5237f::t_7d0c4ea187e984 1-21,23-108,125-126,128-283,286,288-311,318,333-364,368-369,373-452,454-528,530-540
+  s_8e9977ffd5237f::t_071050c67f4afc 365-367,370-372
+  s_8e9977ffd5237f::t_65a74cab858773 529
+  s_8e9977ffd5237f::t_73e8ab58055627 284-285,287
+  s_8e9977ffd5237f::t_d0e00eef443d0a 453
+  s_8e9977ffd5237f::t_4c4ad20b610a42 312-317,319-332
+  s_8e9977ffd5237f::t_3521ac95758141 109-124,127
+  s_8e9977ffd5237f::t_98af6529d727ff 22
+Makefile
+  s_8e9977ffd5237f::t_09089879f269cc 1-28,30-51
+  s_8e9977ffd5237f::t_90ac0eb6aa0e4f 29
+test/run-all.scm
+  s_8e9977ffd5237f::t_26a0012cbd1834 1-19
+module/elixir/process.scm
+  s_8e9977ffd5237f::t_18320d62fcd3bc 185-187,192-201
+  s_8e9977ffd5237f::t_26263ae833d379 1-16,18-36,38-42,46-76,78,80-85,87-92,94,105-119,121,124-127,129-133,139-157,159-175,178-184,188-191,202-204
+  s_8e9977ffd5237f::t_ce710a5d4a306d 93,95-104
+  s_8e9977ffd5237f::t_9a999868918a89 17
+  s_8e9977ffd5237f::t_047f8c4840559f 77,79,86
+  s_8e9977ffd5237f::t_46abed36b76045 120,122-123,128
+  s_8e9977ffd5237f::t_691796a8268615 134-138
+  s_8e9977ffd5237f::t_05c73d6277a9f9 158
+  s_8e9977ffd5237f::t_d03642265915ed 176-177
+  s_8e9977ffd5237f::t_1ea01fea865b30 37,44-45
+  s_8e9977ffd5237f::t_e50647a3400075 43
+test/test-process.scm
+  s_8e9977ffd5237f::t_382229527caa09 1-24,27-118,123-129
+  s_8e9977ffd5237f::t_b3dd0a916fb603 25-26
+  s_8e9977ffd5237f::t_f7b97f2632d150 119-122
+examples/fib.ex
+  s_8e9977ffd5237f::t_33c33008a10325 1-9
+examples/pipeline.ex
+  s_8e9977ffd5237f::t_33c33008a10325 1-5
+design/abi.md
+  s_8e9977ffd5237f::t_1eb5e19271b47a 1-66
+manifest.scm
+  s_8e9977ffd5237f::t_64d3e5b28ccc4d 1-19
+README.md
+  s_8e9977ffd5237f::t_85f13eee3cd920 1-130
+module/elixir/dispatch.scm
+  s_8e9977ffd5237f::t_74712e5ab78b56 26-27
+  s_8e9977ffd5237f::t_d4ef1b716d3eb8 1-11,13-15,17-23,25,28-88
+  s_8e9977ffd5237f::t_f40c02b233fc5f 16
+  s_8e9977ffd5237f::t_323664ce61681c 12,24
+module/elixir/compiler.scm
+  s_8e9977ffd5237f::t_20fe22279d84e0 26
+  s_8e9977ffd5237f::t_43694ca79fe5d1 386-388,390-391
+  s_8e9977ffd5237f::t_618639c91bda0b 27-31
+  s_8e9977ffd5237f::t_1e1a8caf01a9cc 264-283,285-286,290-293
+  s_8e9977ffd5237f::t_577df788d17260 192
+  s_8e9977ffd5237f::t_323664ce61681c 115,367,373
+  s_8e9977ffd5237f::t_50572765a09e4d 1-25,32-114,116-191,193-194,196-263,284,287-289,294-305,309-312,314-321,323-366,368-372,374-385,389,392-399
+  s_8e9977ffd5237f::t_84342eddf17225 195
+  s_8e9977ffd5237f::t_878db284b8cdb1 306-308,313,322
+module/elixir/lexer.scm
+  s_8e9977ffd5237f::t_4e20d2862d5d29 149,158-159
+  s_8e9977ffd5237f::t_a4fdff556b1d1e 1-148,150-157,160-254
+module/elixir/runtime.scm
+  s_8e9977ffd5237f::t_9b6ed586b60d4b 1-20,22-40,42-201,219-286
+  s_8e9977ffd5237f::t_adf0b94003d9bb 21
+  s_8e9977ffd5237f::t_dab36011e0b010 202-209,211-218
+  s_8e9977ffd5237f::t_22d0c0a950afaf 41
+  s_8e9977ffd5237f::t_084234c0790bc9 210
+test/test-lexer.scm
+  s_8e9977ffd5237f::t_524f3a3a2c9208 23
+  s_8e9977ffd5237f::t_9e8dd28676d043 33-34
+  s_8e9977ffd5237f::t_7551e641d1b5c2 1-22,24-32,35-43
+test/test-parser.scm
+  s_8e9977ffd5237f::t_664906f7e43db4 1-59
+design/gc.md
+  s_8e9977ffd5237f::t_a7cdc1995dc4e2 1-74
+design/processes.md
+  s_8e9977ffd5237f::t_0f29f5eeec1a23 1-73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "2a43d571ec219368db6b40a7c24606f033b21d63",
+  "prompts": {},
+  "sessions": {
+    "s_8e9977ffd5237f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa7bf6bc-f474-4925-a494-a8ea455f13a6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
