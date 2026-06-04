@@ -17,10 +17,22 @@
 (define program-file (cadr *args*))
 ;; Optional 2nd arg selects the program's tail:
 ;;   "print"   (default) — run Tests.run/0 and print the summary via host.print
-;;   "handler"           — leave Playground.Endpoint.handle/3 as a procedure the
-;;                         JS host can call per HTTP request (returns its value)
-(define main-mode (if (> (length *args*) 2) (caddr *args*) "print"))
+;;   "handler"           — leave a procedure as the program's value for the JS
+;;                         host to call.  The 3rd arg names the entry as
+;;                         "Mod.fun/arity" (default Playground.Endpoint.handle/3).
+(define main-mode  (if (> (length *args*) 2) (caddr *args*) "print"))
+(define main-entry (if (> (length *args*) 3) (cadddr *args*) "Playground.Endpoint.handle/3"))
 (define (slurp p) (call-with-input-file p get-string-all))
+
+;; "Mod.Path.fun/arity" -> (values 'Mod.Path 'fun arity)
+(define (parse-entry s)
+  (let* ((slash (string-rindex s #\/))
+         (arity (string->number (substring s (+ slash 1))))
+         (qname (substring s 0 slash))
+         (dot   (string-rindex qname #\.))
+         (mod   (string->symbol (substring qname 0 dot)))
+         (fun   (string->symbol (substring qname (+ dot 1)))))
+    (values mod fun arity)))
 
 ;; Names already provided by Hoot's (guile); skip our re-definitions of them
 ;; so the flattened program has no duplicate top-level bindings.
@@ -130,7 +142,17 @@
    (define (resolve-pid p) p)
    (define (ex-make-ref) (make-tuple 'ref 0))
    (define (process-alive? . _) 'false)
-   (define (ex-receive . _) (error "receive: not in wasm demo"))))
+   (define (ex-receive . _) (error "receive: not in wasm demo"))
+   ;; Primitives the kernel's byte_size/System helpers reference but that Hoot's
+   ;; (guile) lacks.  They are not called by the JSON benchmark (files are read
+   ;; and parses timed on the JS side); bind them so the flattened kernel
+   ;; compiles.  Only the names Hoot does NOT already provide go here.
+   (define (get-string-all . _) (error "File: not available in wasm"))
+   (define (file-exists? . _) #f)
+   (define (get-internal-real-time) 0)
+   (define internal-time-units-per-second 1000000)
+   (define (string->utf8 s) s)
+   (define (bytevector-length s) (string-length s))))
 
 ;;; 3. The runtime (value model + dispatch + Scheme stdlib), flattened.
 (emit-all (module-body "module/elixir/runtime.scm"))
@@ -146,10 +168,13 @@
 
 ;;; 6. Main / tail.
 (if (string=? main-mode "handler")
-    ;; The program's final value is a procedure (method path body) -> json
-    ;; string. Hoot reflects it to a JS callable; the Node http server invokes
-    ;; it per request. No process/fiber layer needed — handle/3 is pure.
-    (emit '(lambda (method path body)
-             (ex-call-remote 'Playground.Endpoint 'handle (list method path body))))
+    ;; The program's final value is a procedure Hoot reflects to a JS callable;
+    ;; the JS host invokes it (per HTTP request, per parse, ...).  No fiber layer
+    ;; needed as long as the entry is pure.
+    (call-with-values (lambda () (parse-entry main-entry))
+      (lambda (mod fun arity)
+        (let ((params (map (lambda (i) (string->symbol (string-append "a" (number->string i))))
+                           (iota arity))))
+          (emit `(lambda ,params (ex-call-remote ',mod ',fun (list ,@params)))))))
     ;; Default: run the test program and print its summary via the host import.
     (emit '(%host-print (ex-call-remote 'Tests 'run '()))))
