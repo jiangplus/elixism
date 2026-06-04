@@ -16,7 +16,7 @@ generated-at: 2026-06-04T00:00:00Z
 | Targets | host Guile VM (tested) + WebAssembly via [Hoot](https://spritely.institute/hoot/) |
 | License | Apache 2.0 |
 | Core size | ~2,700 lines (8 modules) + ~480 lines of tests |
-| Tests | 187, all passing on stock Guile 3 |
+| Tests | 189, all passing on stock Guile 3 |
 
 No BEAM, no Erlang. The lexer, parser, and compiler are written entirely in
 Scheme. The compiler is a **pure function** from Elixir source to Scheme
@@ -58,10 +58,10 @@ elixir-hoot/
 │   ├── runtime.scm    # the value model / ABI (tuples, maps, equality, ops)
 │   ├── dispatch.scm   # module+function registry, local/remote call resolution
 │   ├── process.scm    # fiber scheduler: spawn/send/receive on continuations
-│   ├── kernel.scm     # Scheme-implemented stdlib (Kernel/Enum/Map/String/…)
+│   ├── kernel.scm     # stdlib + GenServer (Kernel/Enum/Map/String/Process/…)
 │   └── eval.scm       # host backend: compile emitted Scheme to bytecode + run
 ├── bin/exc            # CLI: run | eval | compile | wasm | repl
-├── test/              # harness + 5 suites (187 tests)
+├── test/              # harness + 5 suites (189 tests)
 ├── design/            # abi.md, processes.md, gc.md
 ├── examples/          # fib, pingpong, pipeline, comprehension
 ├── web/               # browser harness (index.html + boot.js)
@@ -122,7 +122,8 @@ order). See [design/processes.md](design/processes.md).
 - `Enum` (40+), `Map`, `Keyword`, `List`, `Tuple`, `String`, `Integer`,
   `Float`, `IO` standard library.
 - Fiber concurrency: spawn/spawn_link, send/receive (selective, after),
-  self, Process.monitor/link/exit, crash isolation, :DOWN messages.
+  Process.monitor/link/exit, crash isolation, :DOWN messages.
+- GenServer: start_link/call/cast/stop with init/handle_call/handle_cast.
 
 ## Notable Patterns & Decisions
 
@@ -144,6 +145,6 @@ order). See [design/processes.md](design/processes.md).
 
 ## Not Yet Implemented
 
-binary pattern-matching, GenServer/Supervisor, true pre-emption. The
+binary pattern-matching, Supervisor trees, true pre-emption. The
 architecture is built to grow into these; each has a clear home in the
 existing modules.

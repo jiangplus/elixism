@@ -85,6 +85,18 @@ The root process created by `elixir-run` is special: if it dies abnormally,
 its reason is re-raised into the host so the CLI and test suite see the error
 rather than silently getting `nil`.
 
+## GenServer
+
+`GenServer` is built entirely on these primitives (in `kernel.scm`), not baked
+into the runtime. `GenServer.start_link/2` spawn-links a fiber that calls the
+module's `init/1` then enters a receive loop; `call/2` sends a `{:"$call",
+{self, ref}, request}` tuple and blocks on the matching `{ref, reply}`; `cast/2`
+sends `{:"$cast", request}` and returns immediately. The loop dispatches to the
+module's `handle_call/3` / `handle_cast/2` / `handle_info/2` and tail-recurses
+with the returned state — relying on the same "recursion inside `receive`"
+correctness the scheduler guarantees. `use GenServer` is accepted and ignored;
+the user supplies the callbacks directly.
+
 These are the natural simplifications for a single-threaded Wasm guest. The
 cooperative model is a good fit: WebAssembly is single-threaded by default,
 and `receive` is a natural yield point.

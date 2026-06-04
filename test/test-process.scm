@@ -170,6 +170,45 @@ defmodule M do
 end
 M.run()")))
 
+     (deftest "GenServer call/cast with state"
+       (assert-equal "100 105 0" (ev "
+defmodule Counter do
+  use GenServer
+  def init(n), do: {:ok, n}
+  def handle_call(:get, _from, n), do: {:reply, n, n}
+  def handle_call({:add, x}, _from, n), do: {:reply, n + x, n + x}
+  def handle_cast(:reset, _n), do: {:noreply, 0}
+end
+defmodule M do
+  def run() do
+    {:ok, pid} = GenServer.start_link(Counter, 100)
+    a = GenServer.call(pid, :get)
+    b = GenServer.call(pid, {:add, 5})
+    GenServer.cast(pid, :reset)
+    c = GenServer.call(pid, :get)
+    \"#{a} #{b} #{c}\"
+  end
+end
+M.run()")))
+
+     (deftest "GenServer multiple clients"
+       (assert-equal 6 (ev "
+defmodule Stack do
+  def init(_), do: {:ok, []}
+  def handle_cast({:push, x}, s), do: {:noreply, [x | s]}
+  def handle_call(:sum, _from, s), do: {:reply, Enum.sum(s), s}
+end
+defmodule M do
+  def run() do
+    {:ok, pid} = GenServer.start_link(Stack, nil)
+    GenServer.cast(pid, {:push, 1})
+    GenServer.cast(pid, {:push, 2})
+    GenServer.cast(pid, {:push, 3})
+    GenServer.call(pid, :sum)
+  end
+end
+M.run()")))
+
      (deftest "multiple workers fan-in"
        (assert-equal 6 (ev "
 defmodule W do

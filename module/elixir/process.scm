@@ -20,7 +20,7 @@
   #:use-module (elixir runtime)
   #:export (pid? pid-id make-initial-scheduler!
             ex-spawn ex-spawn-link ex-send ex-self ex-receive ex-sleep
-            ex-link ex-monitor ex-process-exit process-exit-reason
+            ex-link ex-monitor ex-process-exit process-exit-reason ex-make-ref
             run-scheduler run-until-idle process-alive?
             scheduler-step-count))
 
@@ -80,6 +80,9 @@
 ;;; ----------------------------------------------------------------------
 
 (define (process-exit-reason pid) (proc-reason (pid-proc pid)))
+
+;; A fresh, unique reference value (used by GenServer.call and monitors).
+(define (ex-make-ref) (make-tuple 'ref (fresh-id)))
 
 (define (ex-spawn thunk)
   (let* ((p (%make-process (fresh-id) '() #f #f #f #f #f '() '() #t 'normal))

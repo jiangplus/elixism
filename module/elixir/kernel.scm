@@ -33,6 +33,7 @@
   (install-keyword!)
   (install-tuple!)
   (install-process!)
+  (install-genserver!)
   'ok)
 
 (define (defn mod name arity proc) (register-builtin! mod name arity proc))
@@ -362,3 +363,70 @@
   (defn 'Process 'monitor 1 (lambda (pid) (ex-monitor pid)))
   (defn 'Process 'exit 2 (lambda (pid reason) (ex-process-exit pid reason)))
   (defn 'Process 'spawn_link 1 (lambda (f) (ex-spawn-link (lambda () (f))))))
+
+;;; ----------------------------------------------------------------------
+;;; GenServer  (a synchronous/async server loop over the process primitives)
+;;;
+;;; A user module supplies init/1, handle_call/3, handle_cast/2 (and
+;;; optionally handle_info/2).  GenServer.start_link spawns a fiber that runs
+;;; init then loops; .call is synchronous (waits for a tagged reply); .cast is
+;;; fire-and-forget.  `use GenServer` is accepted (and ignored) by the compiler.
+;;; ----------------------------------------------------------------------
+
+(define (install-genserver!)
+  (defn 'GenServer 'start_link 2
+    (lambda (mod arg)
+      (let ((pid (ex-spawn-link
+                  (lambda ()
+                    (let ((r (ex-call-remote mod 'init (list arg))))
+                      (genserver-loop mod (tuple-ref r 1)))))))
+        (make-tuple 'ok pid))))
+  (defn 'GenServer 'start_link 3
+    (lambda (mod arg _opts)
+      ((lookup 'GenServer 'start_link 2) mod arg)))
+  (defn 'GenServer 'call 2 (lambda (pid req) (genserver-call pid req)))
+  (defn 'GenServer 'cast 2
+    (lambda (pid req) (ex-send pid (make-tuple '$cast req)) 'ok))
+  (defn 'GenServer 'stop 1
+    (lambda (pid) (ex-process-exit pid 'normal) 'ok)))
+
+(define (lookup mod name arity) (lookup-function mod name arity))
+
+(define (genserver-call pid req)
+  (let ((ref (ex-make-ref))
+        (me (ex-self)))
+    (ex-send pid (make-tuple '$call (make-tuple me ref) req))
+    (ex-receive
+     (lambda (msg)
+       (if (and (tuple? msg) (= (tuple-size msg) 2) (ex-equal? (tuple-ref msg 0) ref))
+           (lambda () (tuple-ref msg 1))
+           '%no-match))
+     #f)))
+
+(define (genserver-loop mod state)
+  (ex-receive
+   (lambda (msg)
+     (cond
+      ((genserver-tagged? msg '$call)
+       (lambda ()
+         (let* ((from (tuple-ref msg 1)) (req (tuple-ref msg 2))
+                (r (ex-call-remote mod 'handle_call (list req from state))))
+           ;; {:reply, reply, new_state} | {:noreply, new_state}
+           (case (tuple-ref r 0)
+             ((reply)
+              (ex-send (tuple-ref from 0) (make-tuple (tuple-ref from 1) (tuple-ref r 1)))
+              (genserver-loop mod (tuple-ref r 2)))
+             (else (genserver-loop mod (tuple-ref r 1)))))))
+      ((genserver-tagged? msg '$cast)
+       (lambda ()
+         (let ((r (ex-call-remote mod 'handle_cast (list (tuple-ref msg 1) state))))
+           (genserver-loop mod (tuple-ref r 1)))))
+      (else
+       (lambda ()
+         (if (function-defined? mod 'handle_info 2)
+             (genserver-loop mod (tuple-ref (ex-call-remote mod 'handle_info (list msg state)) 1))
+             (genserver-loop mod state))))))
+   #f))
+
+(define (genserver-tagged? msg tag)
+  (and (tuple? msg) (> (tuple-size msg) 0) (eq? (tuple-ref msg 0) tag)))
