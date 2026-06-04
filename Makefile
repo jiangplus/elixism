@@ -5,19 +5,29 @@ GUILE       ?= guile
 GUILEC      ?= guild compile
 HOOT_DIR    ?= ../hoot
 MODULES     := $(wildcard module/elixir/*.scm)
-GUILE_FLAGS := -L module -L . --no-auto-compile
+# Auto-compile is ON: the Elixism runtime runs as native VM bytecode, ~6x faster
+# than interpreted.  `make build` warms the cache so the first run isn't slow.
+GUILE_FLAGS := -L module -L .
 
-.PHONY: all test check repl clean wasm help
+.PHONY: all build test check repl clean wasm help
 
 help:
+	@echo "make build   - precompile the runtime modules to Guile bytecode (fast runs)"
 	@echo "make test    - run the full test suite (host Guile)"
 	@echo "make repl    - start an Elixism REPL"
 	@echo "make run F=examples/fib.ex   - compile & run an .ex file"
 	@echo "make wasm F=examples/fib.ex  - emit a Hoot program (needs \$$HOOT_DIR)"
 	@echo "make clean   - remove compiled caches"
 
+# Precompile the runtime modules into Guile's bytecode cache.  Without this the
+# modules still auto-compile on first use; this just front-loads it so the first
+# `exc`/`make test` run is not slowed by compilation.
+build:
+	@$(GUILE) -L module -c '(use-modules (elixir eval) (elixir kernel) (elixir compiler))' \
+	  && echo "runtime modules compiled to Guile bytecode cache"
+
 # Run every suite; exits non-zero on failure.
-test check:
+test check: build
 	$(GUILE) $(GUILE_FLAGS) test/run-all.scm
 
 # Run a single .ex program on the host VM.

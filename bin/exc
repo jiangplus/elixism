@@ -1,4 +1,4 @@
-#!/usr/bin/env -S guile -L module --no-auto-compile -e main -s
+#!/usr/bin/env -S guile -L module -e main -s
 !#
 ;;; exc -- the Elixism command-line tool.
 ;;; SPDX-License-Identifier: Apache-2.0

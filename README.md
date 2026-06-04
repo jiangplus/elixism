@@ -67,11 +67,16 @@ into these — see the design docs.
 Needs a stock **Guile 3** (`brew install guile` / `apt install guile-3.0`).
 
 ```sh
+make build                     # precompile the runtime to Guile bytecode (~6x faster)
 make test                      # run the full suite (241 tests)
 ./bin/exc run examples/fib.ex  # compile & run an .ex file on the host VM
 ./bin/exc eval '1..10 |> Enum.sum()'
 ./bin/exc repl                 # interactive REPL
 ```
+
+`make build` front-loads compiling the runtime modules to native VM bytecode;
+without it they auto-compile on first use (one-time, cached). Running the runtime
+compiled rather than interpreted is ~6× faster.
 
 Example:
 
