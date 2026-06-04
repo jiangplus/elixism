@@ -1,0 +1,23 @@
+Makefile
+  s_8e9977ffd5237f::t_0e9d9cd0950021 8-10,12,15,22-28,30
+README.md
+  s_8e9977ffd5237f::t_b60338afbaf3b9 70,77-79
+bin/exc
+  s_8e9977ffd5237f::t_8d6376b663f649 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "c83c5d9076d207fcb8d0f2dd2afab031e52915c1",
+  "prompts": {},
+  "sessions": {
+    "s_8e9977ffd5237f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa7bf6bc-f474-4925-a494-a8ea455f13a6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
