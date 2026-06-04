@@ -275,9 +275,11 @@ continuations. Full notes in [`design/processes.md`](design/processes.md).
 - **Spawning & continuations.** `ex-spawn`/`ex-spawn-link` create a `<process>`
   with a mailbox and run its thunk inside `call-with-prompt`. A process yields by
   `abort-to-prompt`, capturing its continuation; the scheduler resumes it later.
-- **Pre-emption by reduction counting.** Every function call ticks `reduce!`.
-  After `reduction-limit` ticks the running fiber yields, so a CPU-bound process
-  cannot starve the others — cooperative scheduling with BEAM-like fairness.
+- **Pre-emption by reduction counting.** When another process is ready, every
+  function call ticks `reduce!`; after `reduction-limit` ticks the running fiber
+  yields, so a CPU-bound process cannot starve the others — cooperative
+  scheduling with BEAM-like fairness. A *lone* process skips the counter entirely
+  (it has no one to yield to); see [design/preemption.md](design/preemption.md).
 - **Mailbox & selective receive.** `ex-receive` takes a matcher; on a match it
   **removes the message first, then runs the body** (the body is returned as a
   *thunk*), so a body that blocks in a nested `receive` can't strand the message

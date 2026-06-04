@@ -68,11 +68,24 @@
 (define reduction-limit (make-parameter 2000))
 (define current-process (make-parameter #f))
 
+;; Is another process already waiting to run?  This is tested on *every* call
+;; (from reduce!), so it must cost no procedure call: an (ice-9 q) is a pair
+;; whose car is the list of queued items, so a non-empty car means work waiting
+;; (q-empty? is the public form of exactly this check).
+(define-syntax-rule (others-ready?) (pair? (car *runq*)))
+
 ;; Called on every function call (from dispatch).  When a process exhausts its
 ;; reduction budget it yields cooperatively, giving the scheduler a chance to
 ;; run other ready processes -- BEAM-style reduction-counted pre-emption.
+;;
+;; Lone-process elision: pre-emption only matters when there is *another* ready
+;; process to be fair to.  The overwhelmingly common case -- a single process
+;; (e.g. a pure computation in the root fiber) -- has no one to yield to, so we
+;; skip the whole machinery (no counting, no abort/resume round-trip) behind one
+;; inlined run-queue check.  The instant another process becomes ready, counting
+;; and pre-emption resume exactly as before, preserving round-robin fairness.
 (define (reduce!)
-  (when (current-process)
+  (when (others-ready?)
     (set! *reductions* (- *reductions* 1))
     (when (<= *reductions* 0)
       (set! *reductions* (reduction-limit))

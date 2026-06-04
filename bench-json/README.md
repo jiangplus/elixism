@@ -72,15 +72,19 @@ A representative run (Apple M-series, Guile 3.0.11, OTP 29 / Elixir 1.19):
   file                           size        Jason        Elixism   slowdown  nodes
                               (bytes)   (µs/parse)     (µs/parse)        (x)  (match)
   --------------------------------------------------------------------------------------
-  blockchain.json              17,942           91         25,974       285x  ✓ ok 447
-  utf-8-escaped.json           26,862          309         52,345       169x  ✓ ok 1
-  utf-8-unescaped.json         14,268           95          8,981        95x  ✓ ok 1
-  github.json                  55,528          265         77,916       294x  ✓ ok 1033
-  pokedex.json                 56,828          499        116,369       233x  ✓ ok 3779
-  json-generator.json         110,755          766        185,937       243x  ✓ ok 4901
-  giphy.json                  123,731        1,108        191,364       173x  ✓ ok 3805
-  canada.json               2,251,051       28,862      6,458,320       224x  ✓ ok 167179
+  blockchain.json              17,942           95         25,007       263x  ✓ ok 447
+  utf-8-escaped.json           26,862          321         55,959       174x  ✓ ok 1
+  utf-8-unescaped.json         14,268           99          9,429        95x  ✓ ok 1
+  github.json                  55,528          265         73,821       279x  ✓ ok 1033
+  pokedex.json                 56,828          504        101,926       202x  ✓ ok 3779
+  json-generator.json         110,755          772        192,431       249x  ✓ ok 4901
+  giphy.json                  123,731        1,130        178,777       158x  ✓ ok 3805
+  canada.json               2,251,051       29,515      5,678,829       192x  ✓ ok 167179
 ```
+
+(The Elixism column reflects the lone-process pre-emption optimization — see
+[`../design/preemption.md`](../design/preemption.md); aggregate slowdown was
+~222× before it.)
 
 ### Reading the results
 
