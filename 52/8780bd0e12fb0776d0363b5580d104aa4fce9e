@@ -1,0 +1,36 @@
+examples/bitfields.ex
+  s_8e9977ffd5237f::t_61b6409423eb1e 1-2,5-7,9-11
+  s_8e9977ffd5237f::t_18a83f529b03a1 3-4,8,12-14
+README.md
+  s_8e9977ffd5237f::t_0bb4ae0538f20f 23-25
+  s_8e9977ffd5237f::t_1ffaa5ddd557d1 54-59
+  s_8e9977ffd5237f::t_363ce00ca5d642 66,134,145
+module/elixir/runtime.scm
+  s_8e9977ffd5237f::t_e5bd17557d0a47 266-306
+  s_8e9977ffd5237f::t_fa1ef1bf753fd3 44
+module/elixir/compiler.scm
+  s_8e9977ffd5237f::t_ca2cc7f00410dd 379-395
+  s_8e9977ffd5237f::t_7d4b57a9c7a614 278-300,305-307,309-310,314-315,317-318,325-335
+test/test-integration.scm
+  s_8e9977ffd5237f::t_772302fd278691 171-175
+overview.md
+  s_8e9977ffd5237f::t_363ce00ca5d642 19,64,112-113,152
+design/abi.md
+  s_8e9977ffd5237f::t_363ce00ca5d642 65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "528780bd0e12fb0776d0363b5580d104aa4fce9e",
+  "prompts": {},
+  "sessions": {
+    "s_8e9977ffd5237f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa7bf6bc-f474-4925-a494-a8ea455f13a6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
