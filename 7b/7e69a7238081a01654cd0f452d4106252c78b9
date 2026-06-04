@@ -1,0 +1,42 @@
+module/elixir/kernel.scm
+  s_8e9977ffd5237f::t_87f887dd582a01 333
+  s_8e9977ffd5237f::t_681c9bb0da5bad 29-30
+  s_8e9977ffd5237f::t_7553899deaa94f 12
+  s_8e9977ffd5237f::t_8dbbeea0d19a04 73
+  s_8e9977ffd5237f::t_ad84d569dc38e1 280
+  s_8e9977ffd5237f::t_8c98f490f2dbdb 275-279
+  s_8e9977ffd5237f::t_d4595e0f4d1192 13
+  s_8e9977ffd5237f::t_0bc082f8d0ec3e 94-122
+bench-json/report.py
+  s_8e9977ffd5237f::t_eb62b4418b3103 1-60
+bench-json/bench_driver.ex
+  s_8e9977ffd5237f::t_d314fb91b8c016 1-26
+bench-json/jason_bench.exs
+  s_8e9977ffd5237f::t_4aa2b29f76adbd 1-33
+bench-json/run.sh
+  s_8e9977ffd5237f::t_aff77d8d06c23e 39-40
+  s_8e9977ffd5237f::t_1109e00695e85e 1-20,31-38,41-58
+  s_8e9977ffd5237f::t_665170ebf0843f 21-30
+bench-json/json.ex
+  s_8e9977ffd5237f::t_9f3f62ec3b3c4f 1-152
+.gitignore
+  s_8e9977ffd5237f::t_d4d84ba875036d 9-11
+bench-json/README.md
+  s_8e9977ffd5237f::t_981df316cfe307 1-104
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "7b7e69a7238081a01654cd0f452d4106252c78b9",
+  "prompts": {},
+  "sessions": {
+    "s_8e9977ffd5237f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa7bf6bc-f474-4925-a494-a8ea455f13a6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
