@@ -164,6 +164,10 @@ M.even?(10)")))
      (deftest "binary destructure" (assert-equal 66 (ev "<<_x, y>> = <<65, 66>>\ny")))
      (deftest "binary rest::binary"
        (assert-equal "{72, \"i\"}" (ev* "case <<72, 105>> do\n<<f, rest::binary>> -> {f, rest}\nend")))
+     (deftest "binary 16-bit construct" (assert-equal 2 (ev "String.length(<<258::16>>)")))
+     (deftest "binary 16-bit match" (assert-equal 258 (ev "<<x::16>> = <<1, 2>>\nx")))
+     (deftest "binary mixed sizes + rest"
+       (assert-equal "{8080, 3}" (ev* "<<port::16, ver::8, _r::binary>> = <<31, 144, 3, 0>>\n{port, ver}")))
      (deftest "string prefix match"
        (assert-equal "/x" (ev "defmodule P do\ndef path(\"GET \" <> p), do: p\nend\nP.path(\"GET /x\")")))
      (deftest "string prefix dispatch"

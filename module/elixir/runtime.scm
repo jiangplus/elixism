@@ -40,7 +40,7 @@
             ex-< ex-> ex-<= ex->= ex-== ex-!= ex-and ex-or
             ex-++ ex-<> ex-in?
             ex-range ex-list-difference string->charlist charlist->string
-            ex-enumerate ex-into ex-bin-seg
+            ex-enumerate ex-into ex-bin-seg string-be->int bin-seg-width
             ;; inspection
             inspect ex->display
             ;; errors
@@ -235,13 +235,32 @@
 (define (charlist->string cl) (list->string (map integer->char cl)))
 
 ;; One segment of a `<<>>` binary, rendered to a string (binaries are modelled
-;; as codepoint strings here -- see design/abi.md).  `binary`/`bitstring` keep
-;; a string value; everything else is an integer codepoint/byte.
+;; as codepoint strings here -- see design/abi.md).  A `binary`/`bitstring`
+;; keeps its string value; `utf8` is one codepoint; an integer `type` is a bit
+;; size (must be a multiple of 8) and the value is encoded big-endian into
+;; size/8 codepoint-bytes; otherwise the value is one byte.
 (define (ex-bin-seg value type)
-  (case type
-    ((binary bitstring bytes) value)
-    ((utf8 utf16 utf32) (string (integer->char value)))
-    (else (if (string? value) value (string (integer->char value))))))
+  (cond
+   ((memq type '(binary bitstring bytes)) value)
+   ((memq type '(utf8 utf16 utf32)) (string (integer->char value)))
+   ((and (integer? type) (> type 8)) (int->be-string value (quotient type 8)))
+   (else (if (string? value) value (string (integer->char value))))))
+
+;; The codepoint-byte width of a fixed binary segment of the given type.
+(define (bin-seg-width type)
+  (if (and (integer? type) (> type 8)) (quotient type 8) 1))
+
+;; Encode an integer big-endian into `nbytes` codepoint-bytes.
+(define (int->be-string v nbytes)
+  (list->string
+   (map (lambda (k) (integer->char (modulo (quotient v (expt 256 (- nbytes 1 k))) 256)))
+        (iota nbytes))))
+
+;; Decode `nbytes` big-endian codepoint-bytes of `s` starting at `off`.
+(define (string-be->int s off nbytes)
+  (let loop ((k 0) (acc 0))
+    (if (>= k nbytes) acc
+        (loop (+ k 1) (+ (* acc 256) (char->integer (string-ref s (+ off k))))))))
 
 ;; Turn an enumerable into a Scheme list of its elements (for comprehensions
 ;; and Enum).  Maps enumerate as {key, value} tuples.

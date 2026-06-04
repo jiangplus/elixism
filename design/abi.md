@@ -59,11 +59,12 @@ enclosing block**, so block compilation nests `let`s rather than emitting a
 flat `begin`.
 
 **Binaries** are modelled as codepoint strings, so `<<>>` patterns compile to
-string operations: each non-binary segment consumes exactly one codepoint
-(`string-ref` at a compile-time-known index — size specifiers like `::16` are
-parsed but ignored), and a trailing `var::binary` binds the remaining
-substring. The common string-prefix idiom `"GET " <> rest = req` compiles to a
-`string-prefix?` test plus a `substring` bind.
+string operations. A fixed integer segment consumes `size/8` codepoint-bytes
+(big-endian) at a compile-time-known offset — so `<<port::16, ver::8>>` reads 2
+then 1 bytes — and a trailing `var::binary` binds the remaining substring.
+Sub-byte sizes (`::1`, `::4`) are not supported. The common string-prefix idiom
+`"GET " <> rest = req` compiles to a `string-prefix?` test plus a `substring`
+bind.
 
 ## What the Wasm backend adds
 

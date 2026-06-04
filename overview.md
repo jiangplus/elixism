@@ -16,7 +16,7 @@ generated-at: 2026-06-04T00:00:00Z
 | Targets | host Guile VM (tested) + WebAssembly via [Hoot](https://spritely.institute/hoot/) |
 | License | Apache 2.0 |
 | Core size | ~2,700 lines (8 modules) + ~480 lines of tests |
-| Tests | 205, all passing on stock Guile 3 |
+| Tests | 208, all passing on stock Guile 3 |
 
 No BEAM, no Erlang. The lexer, parser, and compiler are written entirely in
 Scheme. The compiler is a **pure function** from Elixir source to Scheme
@@ -61,7 +61,7 @@ elixir-hoot/
 │   ├── kernel.scm     # stdlib + GenServer (Kernel/Enum/Map/String/Process/…)
 │   └── eval.scm       # host backend: compile emitted Scheme to bytecode + run
 ├── bin/exc            # CLI: run | eval | compile | wasm | repl
-├── test/              # harness + 5 suites (205 tests)
+├── test/              # harness + 5 suites (208 tests)
 ├── design/            # abi.md, processes.md, gc.md
 ├── examples/          # fib, pingpong, pipeline, comprehension
 ├── web/               # browser harness (index.html + boot.js)

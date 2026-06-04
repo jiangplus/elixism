@@ -271,25 +271,37 @@
              ,(compile-pattern rest `(substring ,subj ,n (string-length ,subj)) fail ctx))))
     (_ `(ex-equal? ,subj ,(compile-expr pat ctx)))))
 
-;; Binaries are codepoint strings: each non-binary segment consumes exactly
-;; one codepoint (size specifiers are not honoured), and a trailing
-;; `var::binary` binds the remainder.  An unsized binary must come last.
+;; Binaries are codepoint strings.  Each fixed integer segment consumes
+;; (size/8) codepoint-bytes at a compile-time-known offset, read big-endian; a
+;; trailing `var::binary` binds the remainder.  An unsized binary must be last.
 (define (compile-binary-pattern segs subj ctx)
   (let* ((rev (reverse segs))
          (last-seg (and (pair? rev) (car rev)))
          (rest-bind (and last-seg (binary-rest-seg last-seg)))
          (fixed (if rest-bind (reverse (cdr rev)) segs))
-         (n (length fixed)))
+         ;; cumulative byte offsets (segment widths are compile-time constants)
+         (offsets (scan-offsets (map seg-byte-width fixed)))
+         (total (apply + (map seg-byte-width fixed))))
     `(and (string? ,subj)
-          ,(if rest-bind `(>= (string-length ,subj) ,n) `(= (string-length ,subj) ,n))
-          ,@(map (lambda (seg i)
+          ,(if rest-bind `(>= (string-length ,subj) ,total) `(= (string-length ,subj) ,total))
+          ,@(map (lambda (seg off w)
                    (match seg
                      (('bseg e _)
-                      (compile-pattern e `(char->integer (string-ref ,subj ,i)) #f ctx))))
-                 fixed (iota n))
+                      (compile-pattern e `(string-be->int ,subj ,off ,w) #f ctx))))
+                 fixed offsets (map seg-byte-width fixed))
           ,(if rest-bind
-               (compile-pattern rest-bind `(substring ,subj ,n (string-length ,subj)) #f ctx)
+               (compile-pattern rest-bind `(substring ,subj ,total (string-length ,subj)) #f ctx)
                #t))))
+
+;; Compile-time byte width of a fixed segment.
+(define (seg-byte-width seg)
+  (match seg (('bseg _ type) (if (and (integer? type) (> type 8)) (quotient type 8) 1))))
+
+;; Running sums: (a b c) -> (0 a a+b).
+(define (scan-offsets widths)
+  (let loop ((ws widths) (acc 0) (out '()))
+    (if (null? ws) (reverse out)
+        (loop (cdr ws) (+ acc (car ws)) (cons acc out)))))
 
 ;; If a segment is `var::binary` (the rest-binder), return the inner pattern.
 (define (binary-rest-seg seg)
