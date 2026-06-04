@@ -13,6 +13,7 @@
   #:use-module (elixir dispatch)
   #:use-module (elixir process)
   #:use-module (elixir kernel)
+  #:use-module (elixir corelib)
   #:use-module (system base compile)
   #:export (elixir-compile elixir-eval elixir-run reset-elixir! elixir-env))
 
@@ -21,12 +22,22 @@
 (define elixir-env (current-module))
 
 (define *installed* #f)
+(define *corelib-thunk* #f)   ; the Elixir-written stdlib, compiled once
 
 (define (reset-elixir!)
   (reset-registry!)
   (make-initial-scheduler!)
-  (install-stdlib!)
+  (install-stdlib!)            ; Scheme primitives
+  (load-corelib!)              ; Elixir-written stdlib on top
   (set! *installed* #t))
+
+;; Compile the Elixir core library once, then (re-)register it on every reset.
+(define (load-corelib!)
+  (unless *corelib-thunk*
+    (set! *corelib-thunk*
+          (compile `(lambda () ,(compile-program (parse corelib-source)))
+                   #:from 'scheme #:to 'value #:env elixir-env)))
+  (*corelib-thunk*))
 
 (define (ensure-installed!) (unless *installed* (reset-elixir!)))
 

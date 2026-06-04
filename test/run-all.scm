@@ -7,6 +7,7 @@
              ((test test-parser)     #:select ((run . parser-run)))
              ((test test-runtime)    #:select ((run . runtime-run)))
              ((test test-integration) #:select ((run . integration-run)))
+             ((test test-corelib)    #:select ((run . corelib-run)))
              ((test test-process)    #:select ((run . process-run))))
 
 (reset-counts)
@@ -14,6 +15,7 @@
 (parser-run)
 (runtime-run)
 (integration-run)
+(corelib-run)
 (process-run)
 
 (exit (if (test-summary) 0 1))

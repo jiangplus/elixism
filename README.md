@@ -38,8 +38,12 @@ stock Guile (how the tests run) or hands it to Hoot to produce WebAssembly.
 * **Sigils** — `~w`/`~W` word lists (with `a`/`c` modifiers), `~s`, `~c`.
 * **Call syntax** — both parenthesised and **no-parens** calls
   (`raise "x"`, `IO.puts msg`, `send pid, m`).
-* **Standard library** (Scheme core) — `Kernel`, `Enum` (40+ funcs), `Map`,
-  `Keyword`, `List`, `Tuple`, `String`, `Integer`, `Float`, `IO`, `Process`.
+* **Standard library** — a Scheme-implemented core (`Kernel`, `Enum`, `Map`,
+  `Keyword`, `List`, `Tuple`, `String`, `Integer`, `Float`, `IO`, `Process`)
+  plus higher-level functions **written in Elixir itself** and compiled by
+  elixir-hoot (`Enum.scan`/`reduce_while`/`split_with`/`chunk_by`/`map_reduce`/
+  `take_every`/…, `Integer.digits`/`undigits`, `List.zip`/`unzip`) — the same
+  layering the real Elixir stdlib uses. See `module/elixir/corelib.scm`.
 * **Concurrency** — `spawn`/`spawn_link`, `send`, `receive` (selective, with
   `after` timeouts), `self`, `Process.sleep`/`monitor`/`link`/`exit`/`alive?`/
   `flag(:trap_exit)`/`register`/`whereis`, crash isolation, `:DOWN`/`:EXIT`
@@ -63,7 +67,7 @@ into these — see the design docs.
 Needs a stock **Guile 3** (`brew install guile` / `apt install guile-3.0`).
 
 ```sh
-make test                      # run the full suite (212 tests)
+make test                      # run the full suite (241 tests)
 ./bin/exc run examples/fib.ex  # compile & run an .ex file on the host VM
 ./bin/exc eval '1..10 |> Enum.sum()'
 ./bin/exc repl                 # interactive REPL
@@ -129,9 +133,10 @@ module/elixir/
   dispatch.scm   module/function registry + call resolution
   process.scm    the fiber scheduler (spawn/send/receive on continuations)
   kernel.scm     the Scheme-implemented standard library
+  corelib.scm    higher-level stdlib written in Elixir (loaded at reset)
   eval.scm       host backend: compile -> bytecode -> run
 bin/exc          CLI: run / eval / compile / wasm / repl
-test/            212 tests across lexer, parser, runtime, integration, process
+test/            241 tests across lexer, parser, runtime, integration, corelib, process
 design/          abi.md, processes.md, gc.md
 examples/        sample .ex programs
 ```
@@ -142,10 +147,11 @@ examples/        sample .ex programs
 make test
 ```
 
-212 tests: `test-lexer`, `test-parser`, `test-runtime` (value model),
-`test-integration` (full programs end-to-end), `test-process` (concurrency).
-Because the compiler targets plain Scheme, the entire suite runs on stock
-Guile 3 — only final Wasm emission needs Hoot.
+241 tests: `test-lexer`, `test-parser`, `test-runtime` (value model),
+`test-integration` (full programs end-to-end), `test-corelib` (the
+Elixir-written stdlib), `test-process` (concurrency). Because the compiler
+targets plain Scheme, the entire suite runs on stock Guile 3 — only final Wasm
+emission needs Hoot.
 
 ## License
 

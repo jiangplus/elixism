@@ -20,6 +20,11 @@
 ;;; Program / top level
 ;;; ----------------------------------------------------------------------
 
+;; Elixir variables are mangled to a namespaced Scheme symbol so a user
+;; variable named e.g. `list` or `map` can never shadow the Scheme primitives
+;; the compiler emits in call/constructor code.
+(define (mangle v) (string->symbol (string-append "e:" (symbol->string v))))
+
 ;; Returns a Scheme `(begin ...)` installing all modules/defs.
 (define (compile-program ast)
   (match ast
@@ -200,7 +205,7 @@
          (subjects argvars))
     (let ((match-exprs (map (lambda (p s) (compile-pattern p s failcall mod)) params subjects))
           (body-code (compile-expr body mod)))
-      `(let ,(map (lambda (v) `(,v (if #f #f))) uniq)
+      `(let ,(map (lambda (v) `(,(mangle v) (if #f #f))) uniq)
          ,(fold-right (lambda (m acc) `(if ,m ,acc ,failcall))
                       `(if ,(if guard `(ex-truthy? ,(compile-expr guard mod)) #t)
                            ,body-code
@@ -235,7 +240,7 @@
 (define (compile-pattern pat subj fail ctx)
   (match pat
     (('var '_) #t)
-    (('var v) `(begin (set! ,v ,subj) #t))
+    (('var v) `(begin (set! ,(mangle v) ,subj) #t))
     (('integer n) `(ex-equal? ,subj ,n))
     (('float x) `(ex-equal? ,subj ,x))
     (('atom a) `(eq? ,subj ',a))
@@ -366,7 +371,7 @@
     (('atom a) `',a)
     (('string s) s)
     (('charlist s) `(string->charlist ,s))
-    (('var v) v)
+    (('var v) (mangle v))
     (('defmodule name body) (compile-module name body))
     (('defprotocol name body) (compile-defprotocol name body))
     (('defimpl name type body) (compile-defimpl name type body))
@@ -464,7 +469,7 @@
          `(let lp ((,src (ex-enumerate ,(compile-expr enum ctx))) (,a ,acc))
             (if (null? ,src) ,a
                 (let ((,el (car ,src)))
-                  (let ,(map (lambda (v) `(,v (if #f #f))) vars)
+                  (let ,(map (lambda (v) `(,(mangle v) (if #f #f))) vars)
                     ;; a generator pattern that doesn't match filters the
                     ;; element out (Elixir semantics)
                     (if ,(compile-pattern pat el #f ctx)
@@ -498,7 +503,7 @@
          (let ((v (gensym "wv"))
                (vars (delete-duplicates (pattern-vars pat))))
            `(let ((,v ,(compile-expr expr ctx)))
-              (let ,(map (lambda (x) `(,x (if #f #f))) vars)
+              (let ,(map (lambda (x) `(,(mangle x) (if #f #f))) vars)
                 (if ,(compile-pattern pat v #f ctx)
                     ,(compile-with (cdr clauses) body else-cls ctx)
                     ,(if (null? else-cls)
@@ -563,7 +568,7 @@
        (let ((v (gensym "v"))
              (vars (delete-duplicates (pattern-vars pat))))
          `(let ((,v ,(compile-expr expr ctx)))
-            (let ,(map (lambda (x) `(,x (if #f #f))) vars)
+            (let ,(map (lambda (x) `(,(mangle x) (if #f #f))) vars)
               (if ,(compile-pattern pat v '(ex-match-error) ctx)
                   ,(compile-block (cdr stmts) ctx)
                   (ex-match-error))))))
@@ -576,7 +581,7 @@
   (let* ((vars (delete-duplicates (pattern-vars pat)))
          (val (gensym "v")))
     `(let ((,val ,(compile-expr expr ctx)))
-       (let ,(map (lambda (v) `(,v (if #f #f))) vars)
+       (let ,(map (lambda (v) `(,(mangle v) (if #f #f))) vars)
          (if ,(compile-pattern pat val '(ex-match-error) ctx)
              ,val
              (ex-match-error))))))
@@ -603,7 +608,7 @@
                 (next (gensym "next"))
                 (vars (delete-duplicates (append-map pattern-vars pats))))
            `(let ((,next (lambda () ,rest)))
-              (let ,(map (lambda (v) `(,v (if #f #f))) vars)
+              (let ,(map (lambda (v) `(,(mangle v) (if #f #f))) vars)
                 ,(fold-right
                   (lambda (pv acc)
                     `(if ,(compile-pattern (car pv) (cdr pv) `(,next) ctx) ,acc (,next)))
@@ -631,7 +636,9 @@
 ;; &(...) and &Name/arity captures
 (define (compile-capture inner ctx)
   (let* ((max-arg (capture-max-arg inner 0))
-         (args (map (lambda (i) (string->symbol (format #f "&~a" (+ i 1))))
+         ;; mangle the synthetic &1.. params so they match how the body's
+         ;; (var &N) references compile (compile-expr mangles var refs)
+         (args (map (lambda (i) (mangle (string->symbol (format #f "&~a" (+ i 1)))))
                     (iota max-arg))))
     (if (> max-arg 0)
         `(lambda ,args ,(compile-expr (rewrite-capture-args inner) ctx))
