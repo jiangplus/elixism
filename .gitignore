@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+build/
+*.go
+*.wasm
+web/reflect.js
+web/reflect.wasm
+web/wtf8.wasm
+.DS_Store

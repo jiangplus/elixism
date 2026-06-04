@@ -1,0 +1,65 @@
+#!/usr/bin/env -S guile -L module --no-auto-compile -e main -s
+!#
+;;; exc -- the Elixir-on-Hoot command-line tool.
+;;; SPDX-License-Identifier: Apache-2.0
+;;;
+;;;   exc run     FILE.ex      compile and run on the host VM
+;;;   exc eval    "EXPR"       evaluate a snippet, print the result
+;;;   exc compile FILE.ex      emit the Scheme the Hoot backend would compile
+;;;   exc wasm    FILE.ex      emit a self-contained Hoot program (.scm) for
+;;;                            `guild compile-wasm` (needs the Hoot toolchain)
+
+(use-modules (elixir eval)
+             (elixir runtime)
+             (ice-9 textual-ports)
+             (ice-9 rdelim)
+             (ice-9 pretty-print)
+             (ice-9 match))
+
+(define (slurp path) (call-with-input-file path get-string-all))
+
+(define (main args)
+  (match (cdr args)
+    (("run" file)     (run-file file))
+    (("eval" expr)    (display (inspect (begin (reset-elixir!) (elixir-run expr)))) (newline))
+    (("compile" file) (pretty-print (elixir-compile (slurp file))))
+    (("wasm" file)    (emit-wasm-program (slurp file)))
+    (("repl")         (repl))
+    (_ (usage))))
+
+;; A tiny line-at-a-time REPL.  State (modules) persists across lines.
+(define (repl)
+  (reset-elixir!)
+  (display "Elixir-on-Hoot REPL.  Ctrl-D to exit.\n")
+  (let loop ()
+    (display "iex> ")
+    (force-output)
+    (let ((line (read-line)))
+      (unless (eof-object? line)
+        (unless (string=? (string-trim line) "")
+          (catch #t
+            (lambda () (display (inspect (elixir-eval line))) (newline))
+            (lambda (k . a) (format #t "** ~a ~a~%" k a))))
+        (loop)))))
+
+(define (run-file file)
+  (reset-elixir!)
+  (let ((v (elixir-run (slurp file))))
+    (unless (eq? v 'nil) (display (inspect v)) (newline))))
+
+(define (usage)
+  (display "usage: exc {run|eval|compile|wasm} ARG\n" (current-error-port))
+  (exit 1))
+
+;; Emit a Hoot-ready whole-program module: the runtime is imported and the
+;; compiled Elixir is wrapped in a main thunk run inside a root fiber.  See
+;; design/processes.md for how this maps onto (hoot scheduler) in the browser.
+(define (emit-wasm-program src)
+  (let ((code (elixir-compile src)))
+    (for-each (lambda (form) (pretty-print form) (newline))
+              `((use-modules (elixir runtime) (elixir dispatch)
+                             (elixir process) (elixir kernel))
+                (install-stdlib!)
+                (make-initial-scheduler!)
+                (ex-spawn (lambda () ,code))
+                (run-scheduler)))))

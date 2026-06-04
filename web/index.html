@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Elixir-on-Hoot</title>
+    <style>
+      body { font: 14px/1.5 ui-monospace, monospace; max-width: 48rem; margin: 2rem auto; }
+      pre  { background: #f4f4f4; padding: 1rem; border-radius: 6px; white-space: pre-wrap; }
+      h1   { font-size: 1.4rem; }
+    </style>
+    <!-- reflect.js is copied from ../hoot/reflect-js by `make wasm`. -->
+    <script src="reflect.js"></script>
+    <script src="boot.js" type="module"></script>
+  </head>
+  <body>
+    <h1>Elixir-on-Hoot</h1>
+    <p>An Elixir program compiled to WebAssembly via Guile Hoot. Output:</p>
+    <pre id="out">(loading build/program.wasm …)</pre>
+  </body>
+</html>
