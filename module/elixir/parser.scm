@@ -217,7 +217,28 @@
 (define (parse-capture c)
   (cond
    ((at? c 'int) `(capture-arg ,(token-value (advance! c))))
-   (else `(capture ,(parse-unary c)))))
+   (else
+    (let ((operand (parse-unary c)))
+      ;; For a bare function reference (&name/2, &Mod.fun/2) the trailing
+      ;; `/<int>` is the *arity*, not a division — fold it into the capture so
+      ;; compile-capture-named can see it (otherwise `/2` parses as division
+      ;; and `Mod.fun` collapses to a zero-arg call).
+      (if (and (capture-fun-ref? operand)
+               (at-op? c "/")
+               (eq? (token-type (peek-at c 1)) 'int))
+          (begin
+            (advance! c)                              ; consume "/"
+            (let ((arity (token-value (advance! c))))  ; consume arity int
+              `(capture (binop "/" ,operand (integer ,arity)))))
+          `(capture ,operand))))))
+
+;; Shapes that &.../arity captures a function by name from.
+(define (capture-fun-ref? e)
+  (match e
+    (('var _) #t)
+    (('call _ ()) #t)
+    (('remote _ _ ()) #t)
+    (_ #f)))
 
 ;; postfix: calls, dot-access, indexing
 (define (parse-postfix c)

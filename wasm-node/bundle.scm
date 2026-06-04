@@ -13,7 +13,13 @@
 (use-modules (ice-9 textual-ports)
              (elixir lexer) (elixir parser) (elixir compiler) (elixir corelib))
 
-(define program-file (cadr (command-line)))
+(define *args* (command-line))
+(define program-file (cadr *args*))
+;; Optional 2nd arg selects the program's tail:
+;;   "print"   (default) — run Tests.run/0 and print the summary via host.print
+;;   "handler"           — leave Playground.Endpoint.handle/3 as a procedure the
+;;                         JS host can call per HTTP request (returns its value)
+(define main-mode (if (> (length *args*) 2) (caddr *args*) "print"))
 (define (slurp p) (call-with-input-file p get-string-all))
 
 ;; Names already provided by Hoot's (guile); skip our re-definitions of them
@@ -138,5 +144,12 @@
 ;;; 5. The user program (defmodule Tests / Color), AOT-compiled.
 (emit (compile-program (parse (slurp program-file))))
 
-;;; 6. Main: run the Elixir tests and print the summary via the host.
-(emit '(%host-print (ex-call-remote 'Tests 'run '())))
+;;; 6. Main / tail.
+(if (string=? main-mode "handler")
+    ;; The program's final value is a procedure (method path body) -> json
+    ;; string. Hoot reflects it to a JS callable; the Node http server invokes
+    ;; it per request. No process/fiber layer needed — handle/3 is pure.
+    (emit '(lambda (method path body)
+             (ex-call-remote 'Playground.Endpoint 'handle (list method path body))))
+    ;; Default: run the test program and print its summary via the host import.
+    (emit '(%host-print (ex-call-remote 'Tests 'run '()))))

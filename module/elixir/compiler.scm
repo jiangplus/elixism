@@ -659,8 +659,12 @@
 
 (define (compile-capture-named e ctx)
   (match e
+    ;; &fun/arity  — a local capture resolves in the defining module (ctx).
+    (('binop "/" ('var name) ('integer arity))
+     `(ex-fun-ref ',ctx ',name ,arity))
     (('binop "/" ('call name '()) ('integer arity))
      `(ex-fun-ref ',ctx ',name ,arity))
+    ;; &Mod.fun/arity
     (('binop "/" ('remote m fun '()) ('integer arity))
      `(ex-fun-ref ,(compile-expr m ctx) ',fun ,arity))
     (_ (compile-expr e ctx))))
