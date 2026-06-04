@@ -24,6 +24,7 @@
 ;; Multi-char operators, longest first so we match greedily.
 (define operators
   '("<<~" "~>>" "<~>" "<<<" ">>>" "..." "+++" "---"
+    "\\\\"
     "->" "=>" "==" "!=" "===" "!==" "<=" ">=" "&&" "||" "++" "--"
     "<>" "|>" "::" ".." "//" "<-" "&&&" "|||" "<~" "~>" "<|>" "**"
     "=~" "@" "&" "^" "+" "-" "*" "/" "<" ">" "=" "|" "."))
@@ -74,6 +75,11 @@
                      (operator-start? (peek 1))))
             (lex-atom src (+ i 1) line len
                       (lambda (sym n) (emit 'atom sym (+ 1 n) 0 toks))))
+           ;; char literal  ?a ?\n ?0  -> codepoint integer
+           ((and (char=? c #\?) (peek 1))
+            (if (char=? (peek 1) #\\)
+                (emit 'int (char->integer (escape-char (peek 2))) 3 0 toks)
+                (emit 'int (char->integer (peek 1)) 2 0 toks)))
            ;; numbers
            ((digit? c)
             (lex-number src i line len

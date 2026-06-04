@@ -72,9 +72,57 @@
 (define (parse-statements c done?)
   (skip-newlines! c)
   (if (done? c) '()
-      (let ((stmt (parse-expr c 0)))
+      (let ((stmt (parse-stmt c)))
         (skip-newlines! c)
         (cons stmt (parse-statements c done?)))))
+
+;;; A *statement-level* expression.  This is the only place no-parens calls
+;;; (`raise "x"`, `IO.puts msg`, `send pid, m`) are recognised, so container
+;;; commas and operator precedence elsewhere are unaffected.
+(define (parse-stmt c)
+  (maybe-no-paren-call c (parse-expr c 0)))
+
+(define (maybe-no-paren-call c e)
+  (if (and (no-paren-target? e) (value-start? c))
+      (let ((args (parse-no-paren-args c)))
+        (match e
+          (('var f) `(call ,f ,args))
+          (('remote m fun ()) `(remote ,m ,fun ,args))))
+      e))
+
+;; A bare name or a remote with no parenthesised args can take no-parens args.
+(define (no-paren-target? e)
+  (match e
+    (('var _) #t)
+    (('remote _ _ ()) #t)
+    (_ #f)))
+
+;; Does the current token begin a no-parens argument?  Excludes operators,
+;; block keywords, and reserved words so `case x do`, `a + b`, `x when g`
+;; are never misread as calls.
+(define (value-start? c)
+  (let ((t (peek c)))
+    (case (token-type t)
+      ((int float string interp-string atom alias lbracket lbrace percent kwident) #t)
+      ((ident) (not (memq (token-value t)
+                          '(do end else rescue after catch when in and or not
+                            fn true false nil))))
+      ((op) (member (token-value t) '("&" "@")))
+      (else #f))))
+
+(define (parse-no-paren-args c)
+  (cond
+   ((at? c 'kwident) (list (parse-kwlist c 'eof)))
+   (else
+    (let loop ((acc '()))
+      (let ((e (parse-expr c 0)))
+        (cond
+         ((at? c 'comma)
+          (advance! c) (skip-newlines! c)
+          (if (at? c 'kwident)
+              (reverse (cons (parse-kwlist c 'eof) (cons e acc)))
+              (loop (cons e acc))))
+         (else (reverse (cons e acc)))))))))
 
 ;;; ----------------------------------------------------------------------
 ;;; Expressions (precedence climbing)
@@ -84,6 +132,7 @@
 (define (binop-info op)
   (assoc op
          '(("="   . (100 . right))
+           ("\\\\" . (95 . left))   ; default argument marker
            ("|"   . (110 . right))
            ("||"  . (120 . left)) ("|||" . (120 . left))
            ("&&"  . (130 . left)) ("&&&" . (130 . left))
@@ -309,7 +358,28 @@
   (skip-newlines! c)
   (expect! c 'lbrace)
   (skip-newlines! c)
-  (let loop ((pairs '()))
+  (cond
+   ((at? c 'rbrace) (advance! c) `(map ()))
+   ((at? c 'kwident) (parse-map-pairs c '()))
+   (else
+    ;; Either a map-update `%{base | ...}` or a first `key => val` pair.
+    ;; Parse above `|` (110) so the update bar isn't eaten as an operator.
+    (let ((first (parse-expr c 111)))
+      (skip-newlines! c)
+      (cond
+       ((at-op? c "|")
+        (advance! c) (skip-newlines! c)
+        `(map-update ,first ,(cadr (parse-map-pairs c '()))))
+       ((at-op? c "=>")
+        (advance! c) (skip-newlines! c)
+        (let ((v (parse-expr c 0)))
+          (skip-newlines! c) (when (at? c 'comma) (advance! c))
+          (parse-map-pairs c (list (cons first v)))))
+       (else (error "elixir parser: malformed map at line" (token-line (peek c)))))))))
+
+;; Loop parsing `k: v` / `kexpr => v` entries until `}`, given seeded pairs.
+(define (parse-map-pairs c pairs0)
+  (let loop ((pairs (reverse pairs0)))
     (skip-newlines! c)
     (cond
      ((at? c 'rbrace) (advance! c) `(map ,(reverse pairs)))
@@ -356,6 +426,9 @@
       ((unless)    (advance! c) (parse-unless c))
       ((case)      (advance! c) (parse-case c))
       ((cond)      (advance! c) (parse-cond c))
+      ((for)       (advance! c) (parse-for c))
+      ((with)      (advance! c) (parse-with c))
+      ((try)       (advance! c) (parse-try c))
       ((receive)   (advance! c) (parse-receive c))
       ((true)  (advance! c) `(atom true))
       ((false) (advance! c) `(atom false))
@@ -389,7 +462,7 @@
       (let ((k (token-value (advance! c))))
         (loop (cons (cons cur-key (mk-block (reverse cur-stmts))) sections) k '())))
      (else
-      (let ((stmt (parse-expr c 0)))
+      (let ((stmt (parse-stmt c)))
         (skip-newlines! c)
         (loop sections cur-key (cons stmt cur-stmts)))))))
 
@@ -474,7 +547,7 @@
             (at? c 'rparen) (at? c 'eof)
             (clause-ahead? c))
         (mk-block (reverse stmts))
-        (let ((s (parse-expr c 0)))
+        (let ((s (parse-stmt c)))
           (loop (cons s stmts))))))
 
 ;; Heuristic: are we at the start of a new stab clause? (lookahead for ->)
@@ -538,3 +611,84 @@
         (begin (advance! c) (reverse clauses))
         (let ((cl (parse-stab-clause c)))
           (loop (cons cl clauses))))))
+
+;;; --- for comprehensions --------------------------------------------------
+;; for q1, q2, ..., into: X, do: body
+;; where each q is a generator (pat <- enum) or a filter (boolean expr).
+(define (parse-for c)
+  (let loop ((quals '()))
+    (skip-newlines! c)
+    (if (or (at-ident? c 'do) (at? c 'kwident))
+        (finish-comprehension c (reverse quals))
+        (let* ((e (parse-expr c 0))
+               (qual (if (at-op? c "<-")
+                         (begin (advance! c) (skip-newlines! c)
+                                `(gen ,e ,(parse-expr c 0)))
+                         `(filter ,e))))
+          (skip-newlines! c)
+          (when (at? c 'comma) (advance! c))
+          (loop (cons qual quals))))))
+
+(define (finish-comprehension c quals)
+  (cond
+   ((at-ident? c 'do)
+    (let ((blk (parse-do-block c)))
+      `(for ,quals () ,(section blk 'do))))
+   (else
+    (let ((kw (cadr (parse-kwlist c 'eof))))
+      `(for ,quals
+            ,(filter (lambda (p) (not (eq? (car p) 'do))) kw)
+            ,(section kw 'do))))))
+
+;;; --- with ---------------------------------------------------------------
+;; with pat <- expr, pat2 <- expr2, do: body [, else: clauses]
+(define (parse-with c)
+  (let loop ((clauses '()))
+    (skip-newlines! c)
+    (if (or (at-ident? c 'do) (at? c 'kwident))
+        (finish-with c (reverse clauses))
+        (let* ((e (parse-expr c 0))
+               (clause (if (at-op? c "<-")
+                           (begin (advance! c) (skip-newlines! c)
+                                  `(match ,e ,(parse-expr c 0)))
+                           `(bare ,e))))
+          (skip-newlines! c)
+          (when (at? c 'comma) (advance! c))
+          (loop (cons clause clauses))))))
+
+;;; --- try / rescue / after -----------------------------------------------
+;; try do body rescue pat -> handler ... after cleanup end
+;; AST: (try body rescue-clauses after-body|#f)
+(define (try-section-end? c)
+  (or (at-ident? c 'end) (at-ident? c 'rescue)
+      (at-ident? c 'after) (at-ident? c 'catch)))
+
+(define (parse-try c)
+  (expect-ident! c 'do)
+  (let ((body (mk-block (parse-statements c try-section-end?))))
+    (let loop ((rescue-cls '()) (after-body #f))
+      (skip-newlines! c)
+      (cond
+       ((at-ident? c 'end) (advance! c) `(try ,body ,rescue-cls ,after-body))
+       ((at-ident? c 'rescue)
+        (advance! c) (loop (parse-rescue-clauses c) after-body))
+       ((at-ident? c 'after)
+        (advance! c) (loop rescue-cls (mk-block (parse-statements c try-section-end?))))
+       (else (error "elixir parser: unsupported try section at line"
+                    (token-line (peek c))))))))
+
+(define (parse-rescue-clauses c)
+  (let loop ((cls '()))
+    (skip-newlines! c)
+    (if (try-section-end? c)
+        (reverse cls)
+        (loop (cons (parse-stab-clause c) cls)))))
+
+;; with AST: (with clauses do-body).  An `else:` block is not yet supported;
+;; a failing `<-` match short-circuits and returns the non-matching value.
+(define (finish-with c clauses)
+  (if (at-ident? c 'do)
+      (let ((blk (parse-do-block c)))
+        `(with ,clauses ,(section blk 'do)))
+      (let ((kw (cadr (parse-kwlist c 'eof))))
+        `(with ,clauses ,(section kw 'do)))))

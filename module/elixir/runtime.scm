@@ -27,6 +27,7 @@
             ;; maps
             make-emap emap? emap-ref emap-put emap-has-key? emap->alist
             emap-size emap-keys emap-values alist->emap emap-delete
+            ex-map-update ex-get-field
             ;; booleans / truthiness
             ex-true ex-false ex-nil ex-truthy? ->ex-bool ex-not
             ;; equality / compare
@@ -39,10 +40,11 @@
             ex-< ex-> ex-<= ex->= ex-== ex-!= ex-and ex-or
             ex-++ ex-<> ex-in?
             ex-range ex-list-difference string->charlist charlist->string
+            ex-enumerate ex-into
             ;; inspection
             inspect ex->display
             ;; errors
-            ex-raise ex-error elixir-error? elixir-error-payload))
+            ex-raise ex-error ex-try elixir-error? elixir-error-payload))
 
 ;;; ----------------------------------------------------------------------
 ;;; Tuples
@@ -92,6 +94,22 @@
   (%make-emap (filter (lambda (kv) (not (ex-equal? (car kv) k)))
                       (emap-alist m))))
 (define (emap->alist m) (emap-alist m))
+
+;; Dot field access `map.key` -- fetches the key, raising on a missing key
+;; (like Elixir's `.`, which is Map.fetch!/struct-field semantics).
+(define (ex-get-field obj key)
+  (if (emap? obj)
+      (if (emap-has-key? obj key) (emap-ref obj key 'nil)
+          (ex-raise (make-tuple 'KeyError key)))
+      (ex-raise (make-tuple 'BadMapError obj))))
+
+;; Map update `%{m | k => v}`: every key must already exist (else KeyError).
+(define (ex-map-update m updates)
+  (fold (lambda (kv acc)
+          (if (emap-has-key? acc (car kv))
+              (emap-put acc (car kv) (cdr kv))
+              (ex-raise (make-tuple 'KeyError (car kv)))))
+        m updates))
 (define (emap-size m) (length (emap-alist m)))
 (define (emap-keys m) (map car (emap-alist m)))
 (define (emap-values m) (map cdr (emap-alist m)))
@@ -216,6 +234,23 @@
 (define (string->charlist s) (map char->integer (string->list s)))
 (define (charlist->string cl) (list->string (map integer->char cl)))
 
+;; Turn an enumerable into a Scheme list of its elements (for comprehensions
+;; and Enum).  Maps enumerate as {key, value} tuples.
+(define (ex-enumerate v)
+  (cond ((emap? v) (map (lambda (kv) (make-tuple (car kv) (cdr kv))) (emap-alist v)))
+        ((or (pair? v) (null? v)) v)
+        ((string? v) (map string (string->list v)))
+        (else (ex-raise (make-tuple 'Protocol.UndefinedError "not enumerable")))))
+
+;; Collect a list of results into a target collectable (the `into:` option).
+(define (ex-into target items)
+  (cond ((or (null? target) (pair? target)) (append target items))
+        ((emap? target)
+         (fold (lambda (kv m) (emap-put m (tuple-ref kv 0) (tuple-ref kv 1)))
+               target items))
+        ((string? target) (apply string-append target (map ex->display items)))
+        (else (ex-raise (make-tuple 'Protocol.UndefinedError "not collectable")))))
+
 ;;; ----------------------------------------------------------------------
 ;;; Errors
 ;;; ----------------------------------------------------------------------
@@ -226,6 +261,23 @@
   (payload elixir-error-payload))
 
 (define (ex-raise payload) (raise-exception (make-elixir-error payload)))
+
+;; try/rescue/after.  body/handler/after are thunks (handler takes the raised
+;; payload); after runs unconditionally (finally).  A non-Elixir host
+;; exception is left to propagate.
+(define (ex-try body handler after)
+  (define (run)
+    (if handler
+        (with-exception-handler
+         (lambda (exn)
+           (if (elixir-error? exn)
+               (handler (elixir-error-payload exn))
+               (raise-exception exn)))
+         body #:unwind? #t)
+        (body)))
+  (if after
+      (dynamic-wind (lambda () #t) run after)
+      (run)))
 (define (ex-error kind message)
   (ex-raise (make-emap-from-pairs
              (list (cons '__exception__ 'true)

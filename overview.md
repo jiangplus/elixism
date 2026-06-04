@@ -15,8 +15,8 @@ generated-at: 2026-06-04T00:00:00Z
 | Compiles | a subset of Elixir |
 | Targets | host Guile VM (tested) + WebAssembly via [Hoot](https://spritely.institute/hoot/) |
 | License | Apache 2.0 |
-| Core size | ~2,060 lines (8 modules) + ~480 lines of tests |
-| Tests | 135, all passing on stock Guile 3 |
+| Core size | ~2,500 lines (8 modules) + ~480 lines of tests |
+| Tests | 165, all passing on stock Guile 3 |
 
 No BEAM, no Erlang. The lexer, parser, and compiler are written entirely in
 Scheme. The compiler is a **pure function** from Elixir source to Scheme
@@ -61,9 +61,9 @@ elixir-hoot/
 │   ├── kernel.scm     # Scheme-implemented stdlib (Kernel/Enum/Map/String/…)
 │   └── eval.scm       # host backend: compile emitted Scheme to bytecode + run
 ├── bin/exc            # CLI: run | eval | compile | wasm | repl
-├── test/              # harness + 5 suites (135 tests)
+├── test/              # harness + 5 suites (167 tests)
 ├── design/            # abi.md, processes.md, gc.md
-├── examples/          # fib.ex, pingpong.ex, pipeline.ex
+├── examples/          # fib, pingpong, pipeline, comprehension
 ├── web/               # browser harness (index.html + boot.js)
 ├── Makefile           # test / run / wasm / repl
 └── manifest.scm       # Guix environment
@@ -108,12 +108,17 @@ order). See [design/processes.md](design/processes.md).
 
 ## Key Features
 
-- Pattern matching everywhere (`=`, heads, `case`, `fn`, `receive`) with
-  guards, pins, tuple/list/map/literal patterns.
-- Multi-clause functions, recursion, mutual recursion, auto-imported `Kernel`.
-- Anonymous functions, closures, `&`/`&1` captures.
-- `if`/`unless`/`case`/`cond` and the pipe `|>` (incl. multiline).
-- `Enum`/`Map`/`List`/`String`/`Integer`/`IO` standard library.
+- Pattern matching everywhere (`=`, heads, `case`, `fn`, `receive`, `for`,
+  `with`) with guards, pins, tuple/list/map/literal patterns.
+- Multi-clause functions, recursion, mutual recursion, **default arguments**
+  (`\\`), auto-imported `Kernel`.
+- Anonymous functions (multi-clause), closures, `&`/`&1` captures.
+- `if`/`unless`/`case`/`cond`, `for` comprehensions (generators, filters,
+  `into:`), `with`, `try`/`rescue`/`after`, the pipe `|>` (incl. multiline).
+- Parenthesised **and** no-parens calls (`raise "x"`, `IO.puts msg`).
+- Maps incl. update syntax `%{m | k: v}`; char literals `?a`.
+- `Enum` (40+), `Map`, `Keyword`, `List`, `Tuple`, `String`, `Integer`,
+  `Float`, `IO` standard library.
 - Fiber concurrency: `spawn`/`send`/`receive`/selective-receive/`after`/`self`.
 
 ## Notable Patterns & Decisions
@@ -136,6 +141,6 @@ order). See [design/processes.md](design/processes.md).
 
 ## Not Yet Implemented
 
-`for` comprehensions, structs/protocols, `with`, sigils, binary
-pattern-matching, links/monitors, true pre-emption. The architecture is built
-to grow into these; each has a clear home in the existing modules.
+structs/protocols, sigils, binary pattern-matching, `with`/`else`,
+links/monitors, true pre-emption. The architecture is built to grow into
+these; each has a clear home in the existing modules.

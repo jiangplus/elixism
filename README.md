@@ -17,31 +17,36 @@ stock Guile (how the tests run) or hands it to Hoot to produce WebAssembly.
 ## What works today
 
 * **Data types** — integers (incl. bignums), floats, atoms, booleans, `nil`,
-  strings with `#{}` interpolation, charlists, lists, tuples, maps, ranges.
-* **Pattern matching** — in `=`, function heads, `case`, `fn`, `receive`;
-  tuples, lists/cons, maps, literals, pins, wildcards, guards.
+  strings with `#{}` interpolation, charlists, char literals (`?a`), lists,
+  tuples, maps (incl. update `%{m | k: v}`), ranges.
+* **Pattern matching** — in `=`, function heads, `case`, `fn`, `receive`,
+  `for`, `with`; tuples, lists/cons, maps, literals, pins, wildcards, guards.
 * **Functions & modules** — `defmodule`, `def`/`defp`, multi-clause dispatch,
-  guards, recursion, mutual recursion, default auto-imported `Kernel`.
-* **Anonymous functions & captures** — `fn … end`, closures, `&(&1 + 1)`,
-  `&Mod.fun/arity`.
-* **Control flow** — `if`/`unless`, `case`, `cond`, the pipe operator `|>`
-  (including multiline pipelines).
-* **Standard library** (Scheme core) — `Kernel`, `Enum`, `Map`, `List`,
-  `String`, `Integer`, `IO`, `Process`.
+  guards, recursion, mutual recursion, **default arguments** (`\\`), default
+  auto-imported `Kernel`.
+* **Anonymous functions & captures** — `fn … end` (multi-clause), closures,
+  `&(&1 + 1)`, `&Mod.fun/arity`.
+* **Control flow** — `if`/`unless`, `case`, `cond`, `for` comprehensions
+  (generators, filters, `into:`), `with`, `try`/`rescue`/`after`, the pipe
+  operator `|>` (including multiline pipelines).
+* **Call syntax** — both parenthesised and **no-parens** calls
+  (`raise "x"`, `IO.puts msg`, `send pid, m`).
+* **Standard library** (Scheme core) — `Kernel`, `Enum` (40+ funcs), `Map`,
+  `Keyword`, `List`, `Tuple`, `String`, `Integer`, `Float`, `IO`, `Process`.
 * **Concurrency** — `spawn`, `send`, `receive` (with selective receive and
   `after` timeouts), `self`, `Process.sleep` — on a **fiber scheduler** built
   from delimited continuations (see [design/processes.md](design/processes.md)).
 
-Not yet: `for` comprehensions, structs/protocols, `with`, sigils, binaries
-pattern-matching, links/monitors. The architecture is built to grow into
-these — see the design docs.
+Not yet: structs/protocols, sigils, binary pattern-matching, `with`/`else`,
+links/monitors. The architecture is built to grow into these — see the design
+docs.
 
 ## Quick start
 
 Needs a stock **Guile 3** (`brew install guile` / `apt install guile-3.0`).
 
 ```sh
-make test                      # run the full suite (134 tests)
+make test                      # run the full suite (167 tests)
 ./bin/exc run examples/fib.ex  # compile & run an .ex file on the host VM
 ./bin/exc eval '1..10 |> Enum.sum()'
 ./bin/exc repl                 # interactive REPL
@@ -109,7 +114,7 @@ module/elixir/
   kernel.scm     the Scheme-implemented standard library
   eval.scm       host backend: compile -> bytecode -> run
 bin/exc          CLI: run / eval / compile / wasm / repl
-test/            134 tests across lexer, parser, runtime, integration, process
+test/            167 tests across lexer, parser, runtime, integration, process
 design/          abi.md, processes.md, gc.md
 examples/        sample .ex programs
 ```
@@ -120,7 +125,7 @@ examples/        sample .ex programs
 make test
 ```
 
-134 tests: `test-lexer`, `test-parser`, `test-runtime` (value model),
+167 tests: `test-lexer`, `test-parser`, `test-runtime` (value model),
 `test-integration` (full programs end-to-end), `test-process` (concurrency).
 Because the compiler targets plain Scheme, the entire suite runs on stock
 Guile 3 — only final Wasm emission needs Hoot.

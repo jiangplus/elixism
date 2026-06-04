@@ -114,6 +114,56 @@ M.even?(10)")))
      (deftest "length" (assert-equal 3 (ev "length([1,2,3])")))
      (deftest "hd/tl" (assert-equal 1 (ev "hd([1,2,3])")))
 
+     ;; --- for comprehensions ---
+     (deftest "for map" (assert-equal "[1, 4, 9]" (ev* "for x <- [1,2,3], do: x * x")))
+     (deftest "for filter" (assert-equal "[2, 4]" (ev* "for x <- 1..5, rem(x, 2) == 0, do: x")))
+     (deftest "for nested" (assert-equal "[11, 21, 12, 22]" (ev* "for x <- [1,2], y <- [10,20], do: x + y")))
+     (deftest "for map gen" (assert-equal 3 (ev "Enum.sum(for {_k, v} <- %{a: 1, b: 2}, do: v)")))
+     (deftest "for into map" (assert-equal 9 (ev "m = for x <- 1..3, into: %{}, do: {x, x * x}\nMap.get(m, 3)")))
+
+     ;; --- with ---
+     (deftest "with happy" (assert-equal 15 (ev "with {:ok, a} <- {:ok, 5}, {:ok, b} <- {:ok, 10}, do: a + b")))
+     (deftest "with short-circuit" (assert-equal "{:error, :bad}" (ev* "with {:ok, a} <- {:error, :bad}, do: a")))
+
+     ;; --- try/rescue/after ---
+     (deftest "rescue" (assert-equal "boom" (ev "try do\nraise(\"boom\")\nrescue\ne -> e\nend")))
+     (deftest "try no-raise" (assert-equal 42 (ev "try do\n42\nrescue\n_ -> :no\nend")))
+     (deftest "rescue hd empty" (assert-equal 'caught (ev "try do\nhd([])\nrescue\n_ -> :caught\nend")))
+
+     ;; --- map update / char literals / no-paren ---
+     (deftest "map update" (assert-equal 20 (ev "m = %{a: 1, b: 2}\nMap.get(%{m | b: 20}, :b)")))
+     (deftest "map field access" (assert-equal 5 (ev "m = %{count: 5}\nm.count")))
+     (deftest "map field access missing raises"
+       (assert-raises (lambda () (ev "%{a: 1}.b"))))
+     (deftest "char literal" (assert-equal 97 (ev "?a")))
+     (deftest "char list literal" (assert-equal "[104, 105]" (ev* "[?h, ?i]")))
+     (deftest "no-paren raise rescued"
+       (assert-equal 'ok (ev "try do\nraise \"x\"\nrescue\n_ -> :ok\nend")))
+     (deftest "no-paren send/receive"
+       (assert-equal 'hi (ev "send self(), :hi\nreceive do\nm -> m\nend")))
+
+     ;; --- expanded stdlib ---
+     (deftest "Enum.flat_map" (assert-equal "[1, 1, 2, 2]" (ev* "Enum.flat_map([1,2], fn x -> [x, x] end)")))
+     (deftest "Enum.uniq" (assert-equal "[1, 2, 3]" (ev* "Enum.uniq([1,1,2,3,3])")))
+     (deftest "Enum.sort_by" (assert-equal "[3, 2, 1]" (ev* "Enum.sort_by([1,2,3], fn x -> -x end)")))
+     (deftest "Enum.frequencies" (assert-equal 3 (ev "Map.get(Enum.frequencies([:a,:a,:a,:b]), :a)")))
+     (deftest "Enum.chunk_every" (assert-equal "[[1, 2], [3]]" (ev* "Enum.chunk_every([1,2,3], 2)")))
+     (deftest "Enum.zip" (assert-equal "[{1, :a}, {2, :b}]" (ev* "Enum.zip([1,2], [:a, :b])")))
+     (deftest "Keyword.get" (assert-equal 2 (ev "Keyword.get([a: 1, b: 2], :b)")))
+     (deftest "Keyword.put" (assert-equal 9 (ev "Keyword.get(Keyword.put([a: 1], :c, 9), :c)")))
+     (deftest "Tuple.to_list" (assert-equal "[1, 2, 3]" (ev* "Tuple.to_list({1, 2, 3})")))
+     (deftest "String.capitalize" (assert-equal "Hello" (ev "String.capitalize(\"hELLO\")")))
+     (deftest "String.starts_with?" (assert-equal 'true (ev "String.starts_with?(\"hello\", \"he\")")))
+     (deftest "List.delete_at" (assert-equal "[1, 3]" (ev* "List.delete_at([1,2,3], 1)")))
+
+     ;; --- default arguments ---
+     (deftest "default arg used"
+       (assert-equal "Hello, World" (ev "defmodule G do\ndef greet(n, g \\\\ \"Hello\"), do: \"#{g}, #{n}\"\nend\nG.greet(\"World\")")))
+     (deftest "default arg overridden"
+       (assert-equal "Hi, World" (ev "defmodule G do\ndef greet(n, g \\\\ \"Hello\"), do: \"#{g}, #{n}\"\nend\nG.greet(\"World\", \"Hi\")")))
+     (deftest "multiple defaults"
+       (assert-equal 111 (ev "defmodule G do\ndef add(a, b \\\\ 10, c \\\\ 100), do: a + b + c\nend\nG.add(1)")))
+
      ;; --- errors ---
      (deftest "match error raises"
        (assert-raises (lambda () (ev "{:ok, x} = {:error, 1}"))))

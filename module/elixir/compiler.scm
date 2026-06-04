@@ -42,12 +42,40 @@
 (define (compile-module name body)
   (let* ((mod (alias->symbol name))
          (forms (match body (('block fs) fs) (_ (list body))))
-         (defs (filter (lambda (f) (eq? (car f) 'def)) forms))
+         (defs (append-map expand-defaults
+                           (filter (lambda (f) (eq? (car f) 'def)) forms)))
          (groups (group-defs defs)))
     `(begin
        (register-module! ',mod)
        ,@(map (lambda (g) (compile-function-group mod g)) groups)
        ',mod)))
+
+;; Default arguments: a def with `p \\ default` params expands into one def
+;; per arity, the lower ones delegating to the full one with defaults filled.
+;; (Default args are assumed to be on simple-variable params, as is idiomatic.)
+(define (expand-defaults def)
+  (match def
+    (('def kind name params guard body)
+     (let ((parts (map split-default params)))   ; list of (pattern . default|#f)
+       (if (not (any cdr parts))
+           (list def)                              ; no defaults: unchanged
+           (let* ((n (length params))
+                  (required (length (take-while (lambda (p) (not (cdr p))) parts))))
+             (map (lambda (k)
+                    (if (= k n)
+                        `(def ,kind ,name ,(map car parts) ,guard ,body)
+                        (let ((callargs
+                               (append (map (lambda (p) (car p)) (take parts k))
+                                       (map cdr (drop parts k)))))
+                          `(def ,kind ,name ,(map car (take parts k)) ,guard
+                                (call ,name ,callargs)))))
+                  (iota (+ (- n required) 1) required)))))
+       )))
+
+(define (split-default p)
+  (match p
+    (('binop "\\\\" pat default) (cons pat default))
+    (_ (cons p #f))))
 
 ;; Group def clauses by (name . arity), preserving order.
 (define (group-defs defs)
@@ -200,6 +228,12 @@
                                   `(cons ,(compile-expr (car kv) ctx)
                                          ,(compile-expr (cdr kv) ctx)))
                                 pairs))))
+    (('map-update base pairs)
+     `(ex-map-update ,(compile-expr base ctx)
+                     (list ,@(map (lambda (kv)
+                                    `(cons ,(compile-expr (car kv) ctx)
+                                           ,(compile-expr (cdr kv) ctx)))
+                                  pairs))))
     (('alias parts) `',(string->symbol (string-join (map symbol->string parts) ".")))
     (('binop op l r) (compile-binop op l r ctx))
     (('unop op x) (compile-unop op x ctx))
@@ -215,7 +249,71 @@
     (('dotcall f args) `(ex-apply ,(compile-expr f ctx)
                                   (list ,@(map (lambda (a) (compile-expr a ctx)) args))))
     (('receive clauses after) (compile-receive clauses after ctx))
+    (('for quals options body) (compile-for quals options body ctx))
+    (('with clauses body) (compile-with clauses body ctx))
+    (('try body rescue-cls after-body) (compile-try body rescue-cls after-body ctx))
     (_ (error "compiler: cannot compile expression" e))))
+
+;;; for-comprehension: nested loops accumulating a reversed list, then
+;;; reversed and poured into the `into:` collectable (default []).
+(define (compile-for quals options body ctx)
+  (define (emit-body acc) `(cons ,(compile-expr body ctx) ,acc))
+  (define gen
+    (fold-right (lambda (q inner) (compile-qualifier q inner ctx))
+                emit-body quals))
+  (let ((into (assq 'into options)))
+    `(ex-into ,(if into (compile-expr (cdr into) ctx) ''())
+              (reverse ,(gen ''())))))
+
+;; A qualifier becomes a function (acc-code) -> code threading the accumulator.
+(define (compile-qualifier q inner ctx)
+  (match q
+    (('filter e)
+     (lambda (acc) `(if (ex-truthy? ,(compile-expr e ctx)) ,(inner acc) ,acc)))
+    (('gen pat enum)
+     (lambda (acc)
+       (let ((src (gensym "src")) (a (gensym "acc")) (el (gensym "el"))
+             (vars (delete-duplicates (pattern-vars pat))))
+         `(let lp ((,src (ex-enumerate ,(compile-expr enum ctx))) (,a ,acc))
+            (if (null? ,src) ,a
+                (let ((,el (car ,src)))
+                  (let ,(map (lambda (v) `(,v (if #f #f))) vars)
+                    ;; a generator pattern that doesn't match filters the
+                    ;; element out (Elixir semantics)
+                    (if ,(compile-pattern pat el #f)
+                        (lp (cdr ,src) ,(inner a))
+                        (lp (cdr ,src) ,a))))))))) ))
+
+;;; try/rescue/after: body runs as a thunk under ex-try; a raised Elixir
+;;; payload is matched against the rescue clauses (no match re-raises); the
+;;; after body, if present, runs unconditionally.
+(define (compile-try body rescue-cls after-body ctx)
+  (let ((payload (gensym "ex")))
+    `(ex-try
+      (lambda () ,(compile-expr body ctx))
+      ,(if (null? rescue-cls)
+           #f
+           `(lambda (,payload)
+              ,(compile-match-clauses (list payload) rescue-cls ctx
+                                      `(ex-raise ,payload))))
+      ,(if after-body `(lambda () ,(compile-expr after-body ctx)) #f))))
+
+;;; with: thread successive matches; the first failed `<-` short-circuits and
+;;; returns its non-matching value, else evaluate the body.
+(define (compile-with clauses body ctx)
+  (if (null? clauses)
+      (compile-expr body ctx)
+      (match (car clauses)
+        (('bare e)
+         `(begin ,(compile-expr e ctx) ,(compile-with (cdr clauses) body ctx)))
+        (('match pat expr)
+         (let ((v (gensym "wv"))
+               (vars (delete-duplicates (pattern-vars pat))))
+           `(let ((,v ,(compile-expr expr ctx)))
+              (let ,(map (lambda (x) `(,x (if #f #f))) vars)
+                (if ,(compile-pattern pat v #f)
+                    ,(compile-with (cdr clauses) body ctx)
+                    ,v))))))))   ; match failed: return the value as-is
 
 (define (compile-list elts tail ctx)
   (let ((tail-code (if tail (compile-expr tail ctx) ''())))
@@ -375,11 +473,16 @@
 
 (define (compile-remote modexpr fun args ctx)
   (match modexpr
+    ;; Module remote call:  Mod.fun(args)
     (('alias parts)
      `(ex-call-remote ',(string->symbol (string-join (map symbol->string parts) "."))
                       ',fun (list ,@(map (lambda (a) (compile-expr a ctx)) args))))
-    (_ `(ex-call-remote ,(compile-expr modexpr ctx) ',fun
-                        (list ,@(map (lambda (a) (compile-expr a ctx)) args))))))
+    ;; Dot on a value:  map.field (no args -> field access) or
+    ;; value.fun(args) (field holds a function -> call it).
+    (_ (if (null? args)
+           `(ex-get-field ,(compile-expr modexpr ctx) ',fun)
+           `(ex-apply (ex-get-field ,(compile-expr modexpr ctx) ',fun)
+                      (list ,@(map (lambda (a) (compile-expr a ctx)) args)))))))
 
 (define (compile-receive clauses after ctx)
   (let* ((msg (gensym "msg"))
