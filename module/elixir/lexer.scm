@@ -75,6 +75,11 @@
                      (operator-start? (peek 1))))
             (lex-atom src (+ i 1) line len
                       (lambda (sym n) (emit 'atom sym (+ 1 n) 0 toks))))
+           ;; sigil  ~w(a b c)  ~s"..."  ~r/.../   (~ + letter + delimiter)
+           ((and (char=? c #\~) (peek 1) (char-alphabetic? (peek 1)))
+            (lex-sigil src i line len
+                       (lambda (letter content mods n nl)
+                         (emit 'sigil (list letter content mods) n nl toks))))
            ;; char literal  ?a ?\n ?0  -> codepoint integer
            ((and (char=? c #\?) (peek 1))
             (if (char=? (peek 1) #\\)
@@ -251,6 +256,32 @@
      ((char=? (string-ref src j) #\\)
       (loop (+ j 2) (cons (escape-char (string-ref src (+ j 1))) acc) nl))
      (else (loop (+ j 1) (cons (string-ref src j) acc) nl)))))
+
+;;; --- sigils --------------------------------------------------------------
+;; Calls k with (letter content modifiers char-count newlines).
+;; `i` points at the leading `~`.
+(define (lex-sigil src i line len k)
+  (let* ((letter (string-ref src (+ i 1)))
+         (open (string-ref src (+ i 2)))
+         (close (sigil-closer open)))
+    (let loop ((j (+ i 3)) (acc '()) (nl 0))
+      (cond
+       ((>= j len) (error "elixir lexer: unterminated sigil at line" line))
+       ((char=? (string-ref src j) close)
+        ;; collect trailing modifier letters
+        (let mods ((m (+ j 1)) (ms '()))
+          (if (and (< m len) (char-alphabetic? (string-ref src m)))
+              (mods (+ m 1) (cons (string-ref src m) ms))
+              (k letter (list->string (reverse acc)) (list->string (reverse ms))
+                 (- m i) nl))))
+       ((char=? (string-ref src j) #\\)
+        (loop (+ j 2) (cons (string-ref src (+ j 1)) (cons #\\ acc)) nl))
+       ((char=? (string-ref src j) #\newline)
+        (loop (+ j 1) (cons #\newline acc) (+ nl 1)))
+       (else (loop (+ j 1) (cons (string-ref src j) acc) nl))))))
+
+(define (sigil-closer open)
+  (case open ((#\() #\)) ((#\[) #\]) ((#\{) #\}) ((#\<) #\>) (else open)))
 
 (define (escape-char c)
   (case c

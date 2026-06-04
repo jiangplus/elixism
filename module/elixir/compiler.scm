@@ -70,6 +70,53 @@
      (map (lambda (kv) `(cons ',(car kv) ,(compile-expr (cdr kv) 'module))) pairs))
     (_ (error "defstruct: expected a list or keyword list" arg))))
 
+;;; Protocols.  defprotocol registers, for each declared function, a dispatcher
+;;; under the protocol module that switches on the first argument's type.
+(define (compile-defprotocol name body)
+  (let* ((proto (alias->symbol name))
+         (forms (match body (('block fs) fs) (_ (list body))))
+         (defs (filter (lambda (f) (eq? (car f) 'def)) forms)))
+    `(begin
+       (register-module! ',proto)
+       ,@(map (lambda (d) (compile-proto-dispatcher proto d)) defs)
+       ',proto)))
+
+(define (compile-proto-dispatcher proto def)
+  (match def
+    (('def _ name params _ _)
+     (let* ((arity (length params))
+            (args (map (lambda (i) (gensym "a")) (iota arity))))
+       `(register-function!
+         ',proto ',name ,arity 'def
+         (lambda ,args (ex-protocol-dispatch ',proto ',name (list ,@args))))))))
+
+;;; defimpl registers the implementation functions under (protocol, type).
+(define (compile-defimpl name type body)
+  (let* ((proto (alias->symbol name))
+         (typ (impl-type->symbol type))
+         (forms (match body (('block fs) fs) (_ (list body))))
+         (defs (append-map expand-defaults
+                           (filter (lambda (f) (eq? (car f) 'def)) forms)))
+         (groups (group-defs defs)))
+    `(begin
+       ,@(map (lambda (g) (compile-impl-group proto typ g)) groups)
+       ',typ)))
+
+(define (impl-type->symbol type)
+  (match type
+    (('alias parts) (string->symbol (string-join (map symbol->string parts) ".")))
+    (('atom a) a)
+    (_ (error "defimpl: invalid `for:` type" type))))
+
+(define (compile-impl-group proto typ group)
+  (match group
+    (((name . arity) . clauses)
+     (let ((argvars (map (lambda (i) (gensym "a")) (iota arity))))
+       `(register-protocol-impl!
+         ',proto ',typ ',name ,arity
+         (lambda ,argvars
+           ,(compile-clauses proto clauses argvars '(ex-no-clause))))))))
+
 ;; Default arguments: a def with `p \\ default` params expands into one def
 ;; per arity, the lower ones delegating to the full one with defaults filled.
 ;; (Default args are assumed to be on simple-variable params, as is idiomatic.)
@@ -247,6 +294,8 @@
     (('charlist s) `(string->charlist ,s))
     (('var v) v)
     (('defmodule name body) (compile-module name body))
+    (('defprotocol name body) (compile-defprotocol name body))
+    (('defimpl name type body) (compile-defimpl name type body))
     (('istring parts)
      `(string-append ,@(map (lambda (p) `(ex->display ,(compile-expr p ctx))) parts)))
     (('block stmts) (compile-block stmts ctx))
@@ -291,7 +340,7 @@
                                   (list ,@(map (lambda (a) (compile-expr a ctx)) args))))
     (('receive clauses after) (compile-receive clauses after ctx))
     (('for quals options body) (compile-for quals options body ctx))
-    (('with clauses body) (compile-with clauses body ctx))
+    (('with clauses body else-cls) (compile-with clauses body else-cls ctx))
     (('try body rescue-cls after-body) (compile-try body rescue-cls after-body ctx))
     (_ (error "compiler: cannot compile expression" e))))
 
@@ -339,22 +388,26 @@
                                       `(ex-raise ,payload))))
       ,(if after-body `(lambda () ,(compile-expr after-body ctx)) #f))))
 
-;;; with: thread successive matches; the first failed `<-` short-circuits and
-;;; returns its non-matching value, else evaluate the body.
-(define (compile-with clauses body ctx)
+;;; with: thread successive matches; the first failed `<-` short-circuits.
+;;; With an `else`, the failing value is matched against the else clauses;
+;;; otherwise it is returned directly.
+(define (compile-with clauses body else-cls ctx)
   (if (null? clauses)
       (compile-expr body ctx)
       (match (car clauses)
         (('bare e)
-         `(begin ,(compile-expr e ctx) ,(compile-with (cdr clauses) body ctx)))
+         `(begin ,(compile-expr e ctx) ,(compile-with (cdr clauses) body else-cls ctx)))
         (('match pat expr)
          (let ((v (gensym "wv"))
                (vars (delete-duplicates (pattern-vars pat))))
            `(let ((,v ,(compile-expr expr ctx)))
               (let ,(map (lambda (x) `(,x (if #f #f))) vars)
                 (if ,(compile-pattern pat v #f)
-                    ,(compile-with (cdr clauses) body ctx)
-                    ,v))))))))   ; match failed: return the value as-is
+                    ,(compile-with (cdr clauses) body else-cls ctx)
+                    ,(if (null? else-cls)
+                         v
+                         (compile-match-clauses (list v) else-cls ctx
+                                                `(ex-raise (make-tuple 'WithClauseError ,v))))))))))))
 
 (define (compile-list elts tail ctx)
   (let ((tail-code (if tail (compile-expr tail ctx) ''())))

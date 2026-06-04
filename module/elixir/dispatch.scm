@@ -16,6 +16,7 @@
             ex-no-clause ex-case-error ex-cond-error ex-match-error
             function-defined? reset-registry!
             register-struct! ex-make-struct struct-defaults
+            register-protocol-impl! ex-protocol-dispatch ex-type-tag
             ;; for Kernel registration:
             *registry* register-builtin!))
 
@@ -28,9 +29,40 @@
 ;; module-sym -> alist of (field . default) for structs
 (define *structs* (make-hash-table))
 
+;; (protocol type name arity) -> impl procedure
+(define *proto-impls* (make-hash-table))
+
 (define (reset-registry!)
   (set! *registry* (make-hash-table))
-  (set! *structs* (make-hash-table)))
+  (set! *structs* (make-hash-table))
+  (set! *proto-impls* (make-hash-table)))
+
+(define (register-protocol-impl! proto type name arity proc)
+  (hash-set! *proto-impls* (list proto type name arity) proc) proc)
+
+;; Determine an Elixir value's protocol "type" for dispatch.
+(define (ex-type-tag v)
+  (cond ((and (emap? v) (emap-has-key? v '__struct__)) (emap-ref v '__struct__ #f))
+        ((emap? v) 'Map)
+        ((ex-integer? v) 'Integer)
+        ((ex-float? v) 'Float)
+        ((symbol? v) 'Atom)
+        ((string? v) 'BitString)
+        ((or (pair? v) (null? v)) 'List)
+        ((tuple? v) 'Tuple)
+        ((procedure? v) 'Function)
+        (else 'Any)))
+
+;; Dispatch a protocol call on the runtime type of the first argument,
+;; falling back to an `Any` implementation if one is defined.
+(define (ex-protocol-dispatch proto name args)
+  (let* ((arity (length args))
+         (type (ex-type-tag (car args)))
+         (proc (or (hash-ref *proto-impls* (list proto type name arity))
+                   (hash-ref *proto-impls* (list proto 'Any name arity)))))
+    (if proc
+        (apply proc args)
+        (ex-raise (make-tuple 'Protocol.UndefinedError proto type)))))
 
 (define (register-struct! mod fields) (hash-set! *structs* mod fields) mod)
 (define (struct-defaults mod) (or (hash-ref *structs* mod) '()))

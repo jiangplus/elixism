@@ -31,6 +31,9 @@ stock Guile (how the tests run) or hands it to Hoot to produce WebAssembly.
   operator `|>` (including multiline pipelines).
 * **Structs** — `defstruct`, `%Mod{}` construction, update `%Mod{s | f: v}`,
   field access `s.f`, and pattern matching on structs.
+* **Protocols** — `defprotocol`/`defimpl` with runtime type dispatch (incl.
+  per-struct implementations and an `Any` fallback).
+* **Sigils** — `~w`/`~W` word lists (with `a`/`c` modifiers), `~s`, `~c`.
 * **Call syntax** — both parenthesised and **no-parens** calls
   (`raise "x"`, `IO.puts msg`, `send pid, m`).
 * **Standard library** (Scheme core) — `Kernel`, `Enum` (40+ funcs), `Map`,
@@ -39,16 +42,15 @@ stock Guile (how the tests run) or hands it to Hoot to produce WebAssembly.
   `after` timeouts), `self`, `Process.sleep` — on a **fiber scheduler** built
   from delimited continuations (see [design/processes.md](design/processes.md)).
 
-Not yet: protocols, sigils, binary pattern-matching, `with`/`else`,
-links/monitors. The architecture is built to grow into these — see the design
-docs.
+Not yet: binary pattern-matching, process links/monitors, true pre-emption.
+The architecture is built to grow into these — see the design docs.
 
 ## Quick start
 
 Needs a stock **Guile 3** (`brew install guile` / `apt install guile-3.0`).
 
 ```sh
-make test                      # run the full suite (174 tests)
+make test                      # run the full suite (183 tests)
 ./bin/exc run examples/fib.ex  # compile & run an .ex file on the host VM
 ./bin/exc eval '1..10 |> Enum.sum()'
 ./bin/exc repl                 # interactive REPL
@@ -116,7 +118,7 @@ module/elixir/
   kernel.scm     the Scheme-implemented standard library
   eval.scm       host backend: compile -> bytecode -> run
 bin/exc          CLI: run / eval / compile / wasm / repl
-test/            174 tests across lexer, parser, runtime, integration, process
+test/            183 tests across lexer, parser, runtime, integration, process
 design/          abi.md, processes.md, gc.md
 examples/        sample .ex programs
 ```
@@ -127,7 +129,7 @@ examples/        sample .ex programs
 make test
 ```
 
-174 tests: `test-lexer`, `test-parser`, `test-runtime` (value model),
+183 tests: `test-lexer`, `test-parser`, `test-runtime` (value model),
 `test-integration` (full programs end-to-end), `test-process` (concurrency).
 Because the compiler targets plain Scheme, the entire suite runs on stock
 Guile 3 — only final Wasm emission needs Hoot.

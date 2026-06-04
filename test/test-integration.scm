@@ -156,6 +156,46 @@ M.even?(10)")))
      (deftest "String.starts_with?" (assert-equal 'true (ev "String.starts_with?(\"hello\", \"he\")")))
      (deftest "List.delete_at" (assert-equal "[1, 3]" (ev* "List.delete_at([1,2,3], 1)")))
 
+     ;; --- with/else ---
+     (deftest "with else routes failure"
+       (assert-equal 'not_positive (ev "with {:ok, x} <- {:ok, -1}, true <- x > 0 do\n:ok\nelse\nfalse -> :not_positive\nend")))
+     (deftest "with else by pattern"
+       (assert-equal 'bad (ev "with {:ok, x} <- {:error, 1} do\nx\nelse\n{:error, _} -> :bad\nend")))
+
+     ;; --- sigils ---
+     (deftest "sigil w" (assert-equal "[\"a\", \"b\", \"c\"]" (ev* "~w(a b c)")))
+     (deftest "sigil w atoms" (assert-equal "[:a, :b]" (ev* "~w(a b)a")))
+     (deftest "sigil s" (assert-equal "hi there" (ev "~s(hi there)")))
+     (deftest "sigil c charlist" (assert-equal "[97, 98]" (ev* "~c(ab)")))
+
+     ;; --- protocols ---
+     (deftest "protocol dispatch"
+       (assert-equal "int:5" (ev "
+defprotocol P do
+  def show(v)
+end
+defimpl P, for: Integer do
+  def show(n), do: \"int:#{n}\"
+end
+defimpl P, for: List do
+  def show(l), do: \"list:#{length(l)}\"
+end
+P.show(5)")))
+     (deftest "protocol dispatch list"
+       (assert-equal "list:3" (ev "
+defprotocol P do
+  def show(v)
+end
+defimpl P, for: Integer do
+  def show(n), do: \"int:#{n}\"
+end
+defimpl P, for: List do
+  def show(l), do: \"list:#{length(l)}\"
+end
+P.show([1,2,3])")))
+     (deftest "protocol undefined raises"
+       (assert-raises (lambda () (ev "defprotocol P do\ndef f(v)\nend\nP.f(:atom)"))))
+
      ;; --- structs ---
      (deftest "struct defaults"
        (assert-equal 0 (ev "defmodule U do\ndefstruct name: \"x\", age: 0\nend\n%U{name: \"a\"}.age")))

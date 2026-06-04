@@ -292,6 +292,7 @@
       ((string) (advance! c) `(string ,(token-value t)))
       ((interp-string) (advance! c) `(istring ,(parse-interp-parts (token-value t))))
       ((atom) (advance! c) `(atom ,(token-value t)))
+      ((sigil) (advance! c) (parse-sigil (token-value t)))
       ((lparen) (parse-paren c))
       ((lbracket) (parse-list c))
       ((lbrace) (parse-tuple c))
@@ -300,6 +301,40 @@
       ((ident) (parse-ident-form c))
       (else (error "elixir parser: unexpected token"
                    (token-type t) (token-value t) 'at-line (token-line t))))))
+
+;; Sigils.  ~w/~W word lists (modifier a -> atoms, c -> charlists), ~s strings,
+;; ~c charlists, ~r regex (a minimal {Regex, pattern} value).
+(define (parse-sigil s)
+  (let ((letter (car s)) (content (cadr s)) (mods (caddr s)))
+    (case (char-downcase letter)
+      ((#\w) `(list ,(map (lambda (w) (sigil-word w mods)) (split-ws content)) #f))
+      ((#\s) `(string ,content))
+      ((#\c) `(charlist ,content))
+      ((#\r) `(tuple ((atom Regex) (string ,content))))
+      (else (error "elixir parser: unsupported sigil" letter)))))
+
+(define (sigil-word w mods)
+  (cond ((string-index mods #\a) `(atom ,(string->symbol w)))
+        ((string-index mods #\c) `(charlist ,w))
+        (else `(string ,w))))
+
+(define (split-ws s)
+  (filter (lambda (x) (> (string-length x) 0))
+          (string-split-on s (lambda (ch) (or (char=? ch #\space) (char=? ch #\tab)
+                                              (char=? ch #\newline))))))
+
+(define (string-split-on s pred)
+  (let loop ((chars (string->list s)) (cur '()) (out '()))
+    (cond
+     ((null? chars) (reverse (cons (list->string (reverse cur)) out)))
+     ((pred (car chars)) (loop (cdr chars) '() (cons (list->string (reverse cur)) out)))
+     (else (loop (cdr chars) (cons (car chars) cur) out)))))
+
+(define (string-index str ch)
+  (let loop ((i 0))
+    (cond ((>= i (string-length str)) #f)
+          ((char=? (string-ref str i) ch) i)
+          (else (loop (+ i 1))))))
 
 (define (parse-interp-parts parts)
   (map (lambda (p)
@@ -432,6 +467,8 @@
   (let ((sym (token-value (peek c))))
     (case sym
       ((defmodule) (advance! c) (parse-defmodule c))
+      ((defprotocol) (advance! c) (parse-defprotocol c))
+      ((defimpl)   (advance! c) (parse-defimpl c))
       ((def defp)  (advance! c) (parse-def c sym))
       ((fn)        (advance! c) (parse-fn c))
       ((if)        (advance! c) (parse-if c))
@@ -496,6 +533,24 @@
   (let ((name (parse-primary c)))         ; alias
     (let ((blk (parse-do-block c)))
       `(defmodule ,name ,(section blk 'do)))))
+
+;; defprotocol Name do def f(x) ... end
+(define (parse-defprotocol c)
+  (let ((name (parse-primary c)))
+    (let ((blk (parse-do-block c)))
+      `(defprotocol ,name ,(section blk 'do)))))
+
+;; defimpl Name, for: Type do ... end
+(define (parse-defimpl c)
+  (let ((name (parse-primary c)))
+    (expect! c 'comma)
+    (skip-newlines! c)
+    (unless (and (at? c 'kwident) (eq? (token-value (peek c)) 'for))
+      (error "defimpl: expected `for:` at line" (token-line (peek c))))
+    (advance! c)                           ; consume for:
+    (let ((type (parse-primary c)))        ; alias or atom
+      (let ((blk (parse-do-block c)))
+        `(defimpl ,name ,type ,(section blk 'do))))))
 
 (define (section kwlist key)
   (let ((p (assq key kwlist)))
@@ -696,11 +751,20 @@
         (reverse cls)
         (loop (cons (parse-stab-clause c) cls)))))
 
-;; with AST: (with clauses do-body).  An `else:` block is not yet supported;
-;; a failing `<-` match short-circuits and returns the non-matching value.
+;; with AST: (with clauses do-body else-clauses).  A failing `<-` short-circuits;
+;; with an `else`, the non-matching value is routed through the else clauses,
+;; otherwise it is returned directly.
 (define (finish-with c clauses)
   (if (at-ident? c 'do)
-      (let ((blk (parse-do-block c)))
-        `(with ,clauses ,(section blk 'do)))
+      (begin
+        (expect-ident! c 'do)
+        (let ((body (mk-block (parse-statements c with-section-end?))))
+          (if (at-ident? c 'else)
+              (begin (advance! c)
+                     (let ((else-cls (parse-clauses-until-end c)))
+                       `(with ,clauses ,body ,else-cls)))
+              (begin (expect-ident! c 'end) `(with ,clauses ,body ())))))
       (let ((kw (cadr (parse-kwlist c 'eof))))
-        `(with ,clauses ,(section kw 'do)))))
+        `(with ,clauses ,(section kw 'do) ()))))
+
+(define (with-section-end? c) (or (at-ident? c 'else) (at-ident? c 'end)))
