@@ -7,6 +7,7 @@
 ;;; to the named module, with a Kernel fallback for built-ins.
 
 (define-module (elixir dispatch)
+  #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-9)
   #:use-module (elixir runtime)
   #:export (ex-current-module
@@ -14,6 +15,7 @@
             ex-apply ex-call-local ex-call-remote ex-fun-ref
             ex-no-clause ex-case-error ex-cond-error ex-match-error
             function-defined? reset-registry!
+            register-struct! ex-make-struct struct-defaults
             ;; for Kernel registration:
             *registry* register-builtin!))
 
@@ -23,7 +25,26 @@
 ;; The module in whose body the currently-running code was defined.
 (define ex-current-module (make-parameter 'Elixir))
 
-(define (reset-registry!) (set! *registry* (make-hash-table)))
+;; module-sym -> alist of (field . default) for structs
+(define *structs* (make-hash-table))
+
+(define (reset-registry!)
+  (set! *registry* (make-hash-table))
+  (set! *structs* (make-hash-table)))
+
+(define (register-struct! mod fields) (hash-set! *structs* mod fields) mod)
+(define (struct-defaults mod) (or (hash-ref *structs* mod) '()))
+
+;; Build a struct value: a map with __struct__ plus the module's defaults,
+;; overridden by the given fields.  Unknown fields raise (Elixir enforces
+;; the struct's key set).
+(define (ex-make-struct mod overrides)
+  (let ((base (alist->emap (cons (cons '__struct__ mod) (struct-defaults mod)))))
+    (fold (lambda (kv m)
+            (if (emap-has-key? m (car kv))
+                (emap-put m (car kv) (cdr kv))
+                (ex-raise (make-tuple 'KeyError (car kv)))))
+          base overrides)))
 
 (define (register-module! mod)
   (unless (hash-ref *registry* mod)

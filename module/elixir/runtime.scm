@@ -301,6 +301,12 @@
    ((null? v) "[]")
    ((pair? v) (string-append "[" (join-inspect v) "]"))
    ((tuple? v) (string-append "{" (join-list (map inspect (tuple->list v))) "}"))
+   ((and (emap? v) (emap-has-key? v '__struct__))
+    (string-append "%" (symbol->string (emap-ref v '__struct__ 'nil)) "{"
+                   (join-list (map inspect-pair
+                                   (filter (lambda (kv) (not (eq? (car kv) '__struct__)))
+                                           (emap-alist v))))
+                   "}"))
    ((emap? v) (string-append "%{" (join-list (map inspect-pair (emap-alist v))) "}"))
    ((procedure? v) "#Function<>")
    (else (object->string-safe v))))

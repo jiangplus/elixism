@@ -42,13 +42,33 @@
 (define (compile-module name body)
   (let* ((mod (alias->symbol name))
          (forms (match body (('block fs) fs) (_ (list body))))
+         (structs (filter defstruct-form? forms))
          (defs (append-map expand-defaults
                            (filter (lambda (f) (eq? (car f) 'def)) forms)))
          (groups (group-defs defs)))
     `(begin
        (register-module! ',mod)
+       ,@(map (lambda (s) (compile-defstruct mod s)) structs)
        ,@(map (lambda (g) (compile-function-group mod g)) groups)
        ',mod)))
+
+(define (defstruct-form? f)
+  (match f (('call 'defstruct (_)) #t) (_ #f)))
+
+(define (compile-defstruct mod form)
+  (match form
+    (('call 'defstruct (arg))
+     `(register-struct! ',mod (list ,@(defstruct-fields arg))))))
+
+(define (defstruct-fields arg)
+  (match arg
+    (('list elts #f)                       ; defstruct [:a, :b]
+     (map (lambda (e) (match e (('atom a) `(cons ',a 'nil))
+                             (_ (error "defstruct: expected atom field" e))))
+          elts))
+    (('kwlist pairs)                       ; defstruct a: 1, b: 2
+     (map (lambda (kv) `(cons ',(car kv) ,(compile-expr (cdr kv) 'module))) pairs))
+    (_ (error "defstruct: expected a list or keyword list" arg))))
 
 ;; Default arguments: a def with `p \\ default` params expands into one def
 ;; per arity, the lower ones delegating to the full one with defaults filled.
@@ -156,6 +176,7 @@
      (append (append-map pattern-vars elts)
              (if tail (pattern-vars tail) '())))
     (('map pairs) (append-map (lambda (kv) (pattern-vars (cdr kv))) pairs))
+    (('struct _ pairs) (append-map (lambda (kv) (pattern-vars (cdr kv))) pairs))
     (('binop "<>" _ rest) (pattern-vars rest))
     (('match a b) (append (pattern-vars a) (pattern-vars b)))
     (('unop "^" _) '())
@@ -182,6 +203,14 @@
     (('list elts tail) (compile-list-pattern elts tail subj))
     (('map pairs)
      `(and (emap? ,subj)
+           ,@(map (lambda (kv)
+                    (let ((k (compile-expr (car kv) 'module)))
+                      `(and (emap-has-key? ,subj ,k)
+                            ,(compile-pattern (cdr kv) `(emap-ref ,subj ,k 'nil) fail))))
+                  pairs)))
+    (('struct mod pairs)
+     `(and (emap? ,subj)
+           (eq? (emap-ref ,subj '__struct__ #f) ',(alias->symbol mod))
            ,@(map (lambda (kv)
                     (let ((k (compile-expr (car kv) 'module)))
                       `(and (emap-has-key? ,subj ,k)
@@ -229,6 +258,18 @@
                                          ,(compile-expr (cdr kv) ctx)))
                                 pairs))))
     (('map-update base pairs)
+     `(ex-map-update ,(compile-expr base ctx)
+                     (list ,@(map (lambda (kv)
+                                    `(cons ,(compile-expr (car kv) ctx)
+                                           ,(compile-expr (cdr kv) ctx)))
+                                  pairs))))
+    (('struct mod pairs)
+     `(ex-make-struct ',(alias->symbol mod)
+                      (list ,@(map (lambda (kv)
+                                     `(cons ,(compile-expr (car kv) ctx)
+                                            ,(compile-expr (cdr kv) ctx)))
+                                   pairs))))
+    (('struct-update mod base pairs)
      `(ex-map-update ,(compile-expr base ctx)
                      (list ,@(map (lambda (kv)
                                     `(cons ,(compile-expr (car kv) ctx)

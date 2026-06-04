@@ -156,6 +156,30 @@ M.even?(10)")))
      (deftest "String.starts_with?" (assert-equal 'true (ev "String.starts_with?(\"hello\", \"he\")")))
      (deftest "List.delete_at" (assert-equal "[1, 3]" (ev* "List.delete_at([1,2,3], 1)")))
 
+     ;; --- structs ---
+     (deftest "struct defaults"
+       (assert-equal 0 (ev "defmodule U do\ndefstruct name: \"x\", age: 0\nend\n%U{name: \"a\"}.age")))
+     (deftest "struct field set"
+       (assert-equal "a" (ev "defmodule U do\ndefstruct name: \"x\"\nend\n%U{name: \"a\"}.name")))
+     (deftest "struct update"
+       (assert-equal 9 (ev "defmodule U do\ndefstruct n: 0\nend\ns = %U{n: 1}\n%U{s | n: 9}.n")))
+     (deftest "struct pattern match"
+       (assert-equal 'matched (ev "defmodule U do\ndefstruct k: 0\nend\ncase %U{k: 5} do\n%U{k: 5} -> :matched\n_ -> :no\nend")))
+     (deftest "struct pattern binds field"
+       (assert-equal 7 (ev "defmodule U do\ndefstruct v: 0\nend\n%U{v: x} = %U{v: 7}\nx")))
+     (deftest "struct in function head"
+       (assert-equal 'admin (ev "
+defmodule U do
+  defstruct role: :user
+end
+defmodule A do
+  def kind(%U{role: :admin}), do: :admin
+  def kind(%U{}), do: :other
+end
+A.kind(%U{role: :admin})")))
+     (deftest "struct unknown field raises"
+       (assert-raises (lambda () (ev "defmodule U do\ndefstruct a: 1\nend\n%U{b: 2}"))))
+
      ;; --- default arguments ---
      (deftest "default arg used"
        (assert-equal "Hello, World" (ev "defmodule G do\ndef greet(n, g \\\\ \"Hello\"), do: \"#{g}, #{n}\"\nend\nG.greet(\"World\")")))

@@ -353,28 +353,40 @@
         (expect! c 'rbrace)
         `(tuple ,elts))))
 
+;; `%{...}` (map) or `%Mod{...}` (struct), each with an optional `base | `.
 (define (parse-map c)
   (expect! c 'percent)
   (skip-newlines! c)
+  (if (at? c 'alias)
+      (let ((mod (parse-alias c)))
+        (skip-newlines! c)
+        (match (parse-brace c)
+          (('pairs ps) `(struct ,mod ,ps))
+          (('update base ps) `(struct-update ,mod ,base ,ps))))
+      (match (parse-brace c)
+        (('pairs ps) `(map ,ps))
+        (('update base ps) `(map-update ,base ,ps)))))
+
+;; Parse `{ ... }` contents, returning (pairs PS) or (update BASE PS).
+(define (parse-brace c)
   (expect! c 'lbrace)
   (skip-newlines! c)
   (cond
-   ((at? c 'rbrace) (advance! c) `(map ()))
-   ((at? c 'kwident) (parse-map-pairs c '()))
+   ((at? c 'rbrace) (advance! c) `(pairs ()))
+   ((at? c 'kwident) `(pairs ,(cadr (parse-map-pairs c '()))))
    (else
-    ;; Either a map-update `%{base | ...}` or a first `key => val` pair.
     ;; Parse above `|` (110) so the update bar isn't eaten as an operator.
     (let ((first (parse-expr c 111)))
       (skip-newlines! c)
       (cond
        ((at-op? c "|")
         (advance! c) (skip-newlines! c)
-        `(map-update ,first ,(cadr (parse-map-pairs c '()))))
+        `(update ,first ,(cadr (parse-map-pairs c '()))))
        ((at-op? c "=>")
         (advance! c) (skip-newlines! c)
         (let ((v (parse-expr c 0)))
           (skip-newlines! c) (when (at? c 'comma) (advance! c))
-          (parse-map-pairs c (list (cons first v)))))
+          `(pairs ,(cadr (parse-map-pairs c (list (cons first v)))))))
        (else (error "elixir parser: malformed map at line" (token-line (peek c)))))))))
 
 ;; Loop parsing `k: v` / `kexpr => v` entries until `}`, given seeded pairs.

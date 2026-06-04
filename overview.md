@@ -15,8 +15,8 @@ generated-at: 2026-06-04T00:00:00Z
 | Compiles | a subset of Elixir |
 | Targets | host Guile VM (tested) + WebAssembly via [Hoot](https://spritely.institute/hoot/) |
 | License | Apache 2.0 |
-| Core size | ~2,500 lines (8 modules) + ~480 lines of tests |
-| Tests | 165, all passing on stock Guile 3 |
+| Core size | ~2,560 lines (8 modules) + ~480 lines of tests |
+|  Tests | 174, all passing on stock Guile 3 |
 
 No BEAM, no Erlang. The lexer, parser, and compiler are written entirely in
 Scheme. The compiler is a **pure function** from Elixir source to Scheme
@@ -61,7 +61,7 @@ elixir-hoot/
 │   ├── kernel.scm     # Scheme-implemented stdlib (Kernel/Enum/Map/String/…)
 │   └── eval.scm       # host backend: compile emitted Scheme to bytecode + run
 ├── bin/exc            # CLI: run | eval | compile | wasm | repl
-├── test/              # harness + 5 suites (167 tests)
+├── test/              # harness + 5 suites (174 tests)
 ├── design/            # abi.md, processes.md, gc.md
 ├── examples/          # fib, pingpong, pipeline, comprehension
 ├── web/               # browser harness (index.html + boot.js)
@@ -116,6 +116,7 @@ order). See [design/processes.md](design/processes.md).
 - `if`/`unless`/`case`/`cond`, `for` comprehensions (generators, filters,
   `into:`), `with`, `try`/`rescue`/`after`, the pipe `|>` (incl. multiline).
 - Parenthesised **and** no-parens calls (`raise "x"`, `IO.puts msg`).
+- Structs: `defstruct`, `%Mod{}`, update, field access, struct patterns.
 - Maps incl. update syntax `%{m | k: v}`; char literals `?a`.
 - `Enum` (40+), `Map`, `Keyword`, `List`, `Tuple`, `String`, `Integer`,
   `Float`, `IO` standard library.
@@ -141,6 +142,6 @@ order). See [design/processes.md](design/processes.md).
 
 ## Not Yet Implemented
 
-structs/protocols, sigils, binary pattern-matching, `with`/`else`,
+protocols, sigils, binary pattern-matching, `with`/`else`,
 links/monitors, true pre-emption. The architecture is built to grow into
 these; each has a clear home in the existing modules.
