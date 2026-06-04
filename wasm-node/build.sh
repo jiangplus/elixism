@@ -40,6 +40,16 @@ else
   echo "    (via: guild compile-wasm)"
 fi
 
+# Optional: Binaryen wasm-opt shrinks the module ~15-23% (faster cold start /
+# less bandwidth). Parse speed is unchanged — Elixism dispatch is dynamic.
+if command -v wasm-opt >/dev/null 2>&1; then
+  echo "==> Optimizing program.wasm with wasm-opt (-O3)"
+  wasm-opt -O3 --enable-gc --enable-reference-types --enable-exception-handling \
+    --enable-tail-call --enable-bulk-memory --enable-nontrapping-float-to-int \
+    --enable-multivalue --enable-strings "$HERE/program.wasm" -o "$HERE/program.wasm.opt" \
+    && mv "$HERE/program.wasm.opt" "$HERE/program.wasm"
+fi
+
 echo "==> Copying Hoot JS runtime"
 cp "$HOOT_DIR/reflect-js/reflect.js"   "$HERE/"
 cp "$HOOT_DIR/reflect-wasm/reflect.wasm" "$HERE/"
