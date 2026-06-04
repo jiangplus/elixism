@@ -110,6 +110,31 @@ starts each `{Module, arg}` child via `Module.start_link(arg)`, and on an
 Because children are started *from within* the supervisor fiber, their
 `spawn_link` links them to the supervisor automatically.
 
+## Reduction-counted pre-emption
+
+Pure cooperative scheduling lets a CPU-bound process (one that never calls
+`receive`) starve everyone else. To prevent that, every function call
+(`ex-call-local`/`ex-call-remote`) decrements a per-slice **reduction budget**
+(default 2000, like BEAM). When it hits zero the process *yields* — it
+`abort-to-prompt`s the scheduler, which re-queues it immediately (ready, not
+parked) and resumes it on its next turn. So a 50k-call loop runs in ~25 slices,
+interleaving with other ready processes.
+
+This is why the slice's exception handler sits *outside* the yield prompt: a
+yield's captured continuation must be resumable, and a continuation cannot be
+re-entered across an unwinding exception handler — so the prompt is nested
+inside the handler, never the reverse.
+
+## Named processes
+
+`Process.register(pid, name)` / `whereis/1` / `unregister/1` maintain a global
+name→pid table. `send`, and `GenServer.call`/`cast`, resolve an atom
+destination through it, and `GenServer.start_link(mod, arg, name: N)` registers
+the server. Module resolution for local calls is **lexical** (the compiler
+emits the defining module as a literal), so a closure like
+`spawn(fn -> helper() end)` still finds `helper/0` in its own module after it
+migrates to another process.
+
 These simplifications suit a single-threaded Wasm guest. The cooperative model
 is a good fit: WebAssembly is single-threaded by default, and `receive` is a
 natural yield point.

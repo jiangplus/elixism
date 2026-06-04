@@ -40,25 +40,27 @@ stock Guile (how the tests run) or hands it to Hoot to produce WebAssembly.
 * **Standard library** (Scheme core) — `Kernel`, `Enum` (40+ funcs), `Map`,
   `Keyword`, `List`, `Tuple`, `String`, `Integer`, `Float`, `IO`, `Process`.
 * **Concurrency** — `spawn`/`spawn_link`, `send`, `receive` (selective, with
-  `after` timeouts), `self`, `Process.sleep`/`monitor`/`link`/`exit`/`alive?`,
-  crash isolation, and `:DOWN`/link propagation — on a **fiber scheduler**
-  built from delimited continuations (see [design/processes.md](design/processes.md)).
+  `after` timeouts), `self`, `Process.sleep`/`monitor`/`link`/`exit`/`alive?`/
+  `flag(:trap_exit)`/`register`/`whereis`, crash isolation, `:DOWN`/`:EXIT`
+  propagation, named processes, and **reduction-counted pre-emption** (a
+  CPU-bound process yields so others can run) — on a **fiber scheduler** built
+  from delimited continuations (see [design/processes.md](design/processes.md)).
 * **GenServer & Supervisor** — `GenServer.start_link`/`call`/`cast`/`stop`
-  with `init`/`handle_call`/`handle_cast`/`handle_info` and held state;
-  `Supervisor.start_link` with `:one_for_one` restart and `trap_exit`.
+  with `init`/`handle_call`/`handle_cast`/`handle_info`, held state, and
+  `name:` registration; `Supervisor.start_link` with `:one_for_one`,
+  `:one_for_all`, and `:rest_for_one` restart strategies.
 
 Binaries are modelled as codepoint strings, so `<<>>` segment size specifiers
 (`x::16`) are parsed but not honoured — each non-binary segment is one
-codepoint. Not yet: bit-level binaries, `:one_for_all`/`:rest_for_one`
-strategies, named processes, true pre-emption. The architecture is built to
-grow into these — see the design docs.
+codepoint. Not yet: sub-byte (bit-level) binaries, distributed nodes. The
+architecture is built to grow into these — see the design docs.
 
 ## Quick start
 
 Needs a stock **Guile 3** (`brew install guile` / `apt install guile-3.0`).
 
 ```sh
-make test                      # run the full suite (198 tests)
+make test                      # run the full suite (205 tests)
 ./bin/exc run examples/fib.ex  # compile & run an .ex file on the host VM
 ./bin/exc eval '1..10 |> Enum.sum()'
 ./bin/exc repl                 # interactive REPL
@@ -126,7 +128,7 @@ module/elixir/
   kernel.scm     the Scheme-implemented standard library
   eval.scm       host backend: compile -> bytecode -> run
 bin/exc          CLI: run / eval / compile / wasm / repl
-test/            198 tests across lexer, parser, runtime, integration, process
+test/            205 tests across lexer, parser, runtime, integration, process
 design/          abi.md, processes.md, gc.md
 examples/        sample .ex programs
 ```
@@ -137,7 +139,7 @@ examples/        sample .ex programs
 make test
 ```
 
-198 tests: `test-lexer`, `test-parser`, `test-runtime` (value model),
+205 tests: `test-lexer`, `test-parser`, `test-runtime` (value model),
 `test-integration` (full programs end-to-end), `test-process` (concurrency).
 Because the compiler targets plain Scheme, the entire suite runs on stock
 Guile 3 — only final Wasm emission needs Hoot.

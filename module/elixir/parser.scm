@@ -670,6 +670,9 @@
                (case (token-value t)
                  ((do fn) (loop (+ i 1) (+ depth 1)))
                  ((end) (if (= depth 0) #f (loop (+ i 1) (- depth 1))))
+                 ;; section keywords close the current clause group at depth 0
+                 ((after else catch rescue)
+                  (if (= depth 0) #f (loop (+ i 1) depth)))
                  (else (loop (+ i 1) depth))))
               (else (loop (+ i 1) depth))))))))
 

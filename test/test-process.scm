@@ -9,6 +9,38 @@
 (define (ev src) (reset-elixir!) (elixir-run src))
 (define (ev* src) (reset-elixir!) (inspect (elixir-run src)))
 
+;; Shared program: 3 supervised workers a/b/c; crash :b and report which
+;; (by id) get restarted under the given strategy.
+(define (supervisor-test strategy)
+  (string-append "
+defmodule W do
+  use GenServer
+  def start_link({rep, id}), do: GenServer.start_link(W, {rep, id})
+  def init({rep, id}) do
+    send(rep, {:up, id, self()})
+    {:ok, {rep, id}}
+  end
+  def handle_cast(:crash, _s), do: raise \"x\"
+end
+defmodule M do
+  def run() do
+    me = self()
+    {:ok, _} = Supervisor.start_link(
+      [{W, {me, :a}}, {W, {me, :b}}, {W, {me, :c}}], strategy: :" strategy ")
+    pids = collect(me, %{}, 3)
+    GenServer.cast(Map.get(pids, :b), :crash)
+    Enum.sort(drain(me, []))
+  end
+  def collect(_me, acc, 0), do: acc
+  def collect(me, acc, n) do
+    receive do {:up, id, pid} -> collect(me, Map.put(acc, id, pid), n - 1) end
+  end
+  def drain(me, acc) do
+    receive do {:up, id, _} -> drain(me, [id | acc]) after 20 -> acc end
+  end
+end
+M.run()"))
+
 (define (run)
   (run-suite "process"
    (lambda ()
@@ -245,6 +277,75 @@ defmodule M do
   end
 end
 M.run()")))
+
+     (deftest "local call inside spawned fn (lexical module)"
+       (assert-equal 5000 (ev "
+defmodule M do
+  def count(0, acc), do: acc
+  def count(n, acc), do: count(n - 1, acc + 1)
+  def run() do
+    me = self()
+    spawn(fn -> send(me, count(5000, 0)) end)
+    receive do x -> x end
+  end
+end
+M.run()")))
+
+     (deftest "reduction pre-emption interleaves CPU-bound work"
+       ;; A (spawned first) is CPU-heavy; B (spawned second) is quick.  With
+       ;; reduction-counted pre-emption, B's message arrives before A finishes.
+       (assert-equal "{:b_done, :a_done}" (ev* "
+defmodule M do
+  def busy(0, acc), do: acc
+  def busy(n, acc), do: busy(n - 1, acc + 1)
+  def run() do
+    me = self()
+    spawn(fn -> busy(50000, 0); send(me, :a_done) end)
+    spawn(fn -> send(me, :b_done) end)
+    a = receive do x -> x end
+    b = receive do x -> x end
+    {a, b}
+  end
+end
+M.run()")))
+
+     (deftest "Process.register + send by name"
+       (assert-equal 'hello (ev "
+defmodule M do
+  def run() do
+    me = self()
+    pid = spawn(fn -> receive do {:hi, from} -> send(from, :hello) end end)
+    Process.register(pid, :greeter)
+    send(:greeter, {:hi, me})
+    receive do msg -> msg end
+  end
+end
+M.run()")))
+
+     (deftest "GenServer registered name"
+       (assert-equal 2 (ev "
+defmodule C do
+  use GenServer
+  def init(n), do: {:ok, n}
+  def handle_call(:get, _from, n), do: {:reply, n, n}
+  def handle_cast(:inc, n), do: {:noreply, n + 1}
+end
+defmodule M do
+  def run() do
+    GenServer.start_link(C, 0, name: :ctr)
+    GenServer.cast(:ctr, :inc)
+    GenServer.cast(:ctr, :inc)
+    GenServer.call(:ctr, :get)
+  end
+end
+M.run()")))
+
+     (deftest "supervisor :one_for_all restarts all on a crash"
+       (assert-equal "[:a, :b, :c]" (ev* (supervisor-test "one_for_all"))))
+     (deftest "supervisor :rest_for_one restarts the rest"
+       (assert-equal "[:b, :c]" (ev* (supervisor-test "rest_for_one"))))
+     (deftest "supervisor :one_for_one restarts just the crashed child"
+       (assert-equal "[:b]" (ev* (supervisor-test "one_for_one"))))
 
      (deftest "multiple workers fan-in"
        (assert-equal 6 (ev "

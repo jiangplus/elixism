@@ -10,6 +10,7 @@
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-9)
   #:use-module (elixir runtime)
+  #:use-module (elixir process)
   #:export (ex-current-module
             register-module! register-function! lookup-function
             ex-apply ex-call-local ex-call-remote ex-fun-ref
@@ -105,6 +106,7 @@
 
 ;; Local call: try the current module, then Kernel.
 (define (ex-call-local mod name args)
+  (reduce!)                              ; reduction-counted pre-emption
   (let ((arity (length args)))
     (or (and=> (lookup-function mod name arity)
               (lambda (p) (apply p args)))
@@ -114,6 +116,7 @@
 
 ;; Remote call: Mod.fun(args), with Kernel fallback for built-ins.
 (define (ex-call-remote mod name args)
+  (reduce!)
   (let ((arity (length args)))
     (or (and=> (lookup-function mod name arity)
               (lambda (p) (apply p args)))

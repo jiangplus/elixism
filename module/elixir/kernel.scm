@@ -365,7 +365,10 @@
   (defn 'Process 'exit 2 (lambda (pid reason) (ex-process-exit pid reason)))
   (defn 'Process 'spawn_link 1 (lambda (f) (ex-spawn-link (lambda () (f)))))
   (defn 'Process 'flag 2
-    (lambda (flag val) (if (eq? flag 'trap_exit) (->ex-bool (ex-trap-exit! (ex-truthy? val))) 'false))))
+    (lambda (flag val) (if (eq? flag 'trap_exit) (->ex-bool (ex-trap-exit! (ex-truthy? val))) 'false)))
+  (defn 'Process 'register 2 (lambda (pid name) (ex-register pid name)))
+  (defn 'Process 'unregister 1 (lambda (name) (ex-unregister name)))
+  (defn 'Process 'whereis 1 (lambda (name) (ex-whereis name))))
 
 ;;; ----------------------------------------------------------------------
 ;;; GenServer  (a synchronous/async server loop over the process primitives)
@@ -385,13 +388,16 @@
                       (genserver-loop mod (tuple-ref r 1)))))))
         (make-tuple 'ok pid))))
   (defn 'GenServer 'start_link 3
-    (lambda (mod arg _opts)
-      ((lookup 'GenServer 'start_link 2) mod arg)))
-  (defn 'GenServer 'call 2 (lambda (pid req) (genserver-call pid req)))
+    (lambda (mod arg opts)
+      (let ((r ((lookup 'GenServer 'start_link 2) mod arg))
+            (name (kw-get opts 'name %absent)))
+        (unless (eq? name %absent) (ex-register (tuple-ref r 1) name))
+        r)))
+  (defn 'GenServer 'call 2 (lambda (pid req) (genserver-call (resolve-pid pid) req)))
   (defn 'GenServer 'cast 2
-    (lambda (pid req) (ex-send pid (make-tuple '$cast req)) 'ok))
+    (lambda (pid req) (ex-send (resolve-pid pid) (make-tuple '$cast req)) 'ok))
   (defn 'GenServer 'stop 1
-    (lambda (pid) (ex-process-exit pid 'normal) 'ok)))
+    (lambda (pid) (ex-process-exit (resolve-pid pid) 'normal) 'ok)))
 
 (define (lookup mod name arity) (lookup-function mod name arity))
 
@@ -444,15 +450,17 @@
 
 (define (install-supervisor!)
   (defn 'Supervisor 'start_link 2
-    (lambda (children _opts)
-      (make-tuple 'ok (ex-spawn-link (lambda () (supervisor-run children))))))
+    (lambda (children opts)
+      (make-tuple 'ok (ex-spawn-link
+                       (lambda () (supervisor-run children (kw-get opts 'strategy 'one_for_one)))))))
   (defn 'Supervisor 'start_link 1
     (lambda (children)
-      (make-tuple 'ok (ex-spawn-link (lambda () (supervisor-run children)))))))
+      (make-tuple 'ok (ex-spawn-link (lambda () (supervisor-run children 'one_for_one)))))))
 
-(define (supervisor-run children)
+(define (supervisor-run children strategy)
   (ex-trap-exit! #t)
-  (supervisor-loop (map start-child children)))
+  ;; kids: ordered list of (cons pid spec)
+  (supervisor-loop (map start-child children) strategy '()))
 
 ;; start a child spec {Module, arg}; returns (cons pid spec)
 (define (start-child spec)
@@ -461,20 +469,43 @@
          (r (ex-call-remote mod 'start_link (list arg))))
     (cons (tuple-ref r 1) spec)))     ; {:ok, pid}
 
-(define (supervisor-loop kids)
+;; `expected` holds pids the supervisor itself shut down (for one_for_all /
+;; rest_for_one restarts), so their incoming {:EXIT} is ignored rather than
+;; treated as a fresh crash.
+(define (supervisor-loop kids strategy expected)
   (ex-receive
    (lambda (msg)
      (if (genserver-tagged? msg 'EXIT)
          (lambda ()
-           (let* ((dead (tuple-ref msg 1))
-                  (spec (assoc-pid kids dead))
-                  (rest (filter (lambda (k) (not (ex-equal? (car k) dead))) kids)))
-             (if spec
-                 (supervisor-loop (cons (start-child spec) rest))  ; one_for_one
-                 (supervisor-loop rest))))
-         (lambda () (supervisor-loop kids))))
+           (let ((dead (tuple-ref msg 1)))
+             (if (member dead expected ex-equal?)
+                 (supervisor-loop kids strategy (remove-pid expected dead))
+                 (supervisor-restart kids strategy dead))))
+         (lambda () (supervisor-loop kids strategy expected))))
    #f))
 
-(define (assoc-pid kids pid)
-  (let ((k (find (lambda (k) (ex-equal? (car k) pid)) kids)))
-    (and k (cdr k))))
+(define (remove-pid pids dead)
+  (filter (lambda (p) (not (ex-equal? p dead))) pids))
+
+(define (supervisor-restart kids strategy dead)
+  (let* ((n (length kids))
+         (idx (list-index (lambda (k) (ex-equal? (car k) dead)) kids))
+         (set (restart-set strategy (or idx 0) n))
+         ;; shut down the still-alive children in the restart set (not `dead`)
+         (killed (filter-map
+                  (lambda (i)
+                    (let ((pid (car (list-ref kids i))))
+                      (and (not (ex-equal? pid dead)) (process-alive? pid)
+                           (begin (ex-process-exit pid 'shutdown) pid))))
+                  set))
+         ;; restart every child in the set with a fresh pid
+         (new-kids (map (lambda (k i) (if (memv i set) (start-child (cdr k)) k))
+                        kids (iota n))))
+    (supervisor-loop new-kids strategy killed)))
+
+;; Which child indexes to restart, given the crashed index and child count.
+(define (restart-set strategy idx n)
+  (case strategy
+    ((one_for_all) (iota n))
+    ((rest_for_one) (iota (- n idx) idx))
+    (else (list idx))))                ; one_for_one

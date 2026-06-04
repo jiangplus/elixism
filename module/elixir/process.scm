@@ -21,7 +21,8 @@
   #:export (pid? pid-id make-initial-scheduler!
             ex-spawn ex-spawn-link ex-send ex-self ex-receive ex-sleep
             ex-link ex-monitor ex-process-exit process-exit-reason ex-make-ref
-            ex-trap-exit!
+            ex-trap-exit! ex-register ex-unregister ex-whereis resolve-pid
+            reduce! reduction-limit
             run-scheduler run-until-idle process-alive?
             scheduler-step-count))
 
@@ -62,14 +63,46 @@
 (define *next-id* 0)
 (define *clock* 0)                  ; logical time, advanced on idle
 (define *steps* 0)
+(define *names* (make-hash-table)) ; registered name (symbol) -> pid
+(define *reductions* 0)            ; calls remaining in the current time slice
+(define reduction-limit (make-parameter 2000))
 (define current-process (make-parameter #f))
+
+;; Called on every function call (from dispatch).  When a process exhausts its
+;; reduction budget it yields cooperatively, giving the scheduler a chance to
+;; run other ready processes -- BEAM-style reduction-counted pre-emption.
+(define (reduce!)
+  (when (current-process)
+    (set! *reductions* (- *reductions* 1))
+    (when (<= *reductions* 0)
+      (set! *reductions* (reduction-limit))
+      (abort-to-prompt sched-tag 'yield))))
 
 (define (make-initial-scheduler!)
   (set! *runq* (make-q))
   (set! *blocked* '())
   (set! *next-id* 0)
   (set! *clock* 0)
-  (set! *steps* 0))
+  (set! *steps* 0)
+  (set! *names* (make-hash-table)))
+
+;;; --- name registration --------------------------------------------------
+
+(define (ex-register pid name)
+  (hash-set! *names* name pid) 'true)
+(define (ex-unregister name)
+  (hash-remove! *names* name) 'true)
+(define (ex-whereis name)
+  (or (hash-ref *names* name) 'nil))
+
+;; Resolve a send/call destination: a pid passes through, a registered name
+;; (atom) is looked up.
+(define (resolve-pid dest)
+  (cond ((pid? dest) dest)
+        ((symbol? dest)
+         (let ((p (hash-ref *names* dest)))
+           (or p (ex-raise (make-tuple 'noproc dest)))))
+        (else dest)))
 
 (define (scheduler-step-count) *steps*)
 
@@ -93,27 +126,11 @@
   (let* ((p (%make-process (fresh-id) '() #f #f #f #f #f '() '() #t 'normal #f))
          (pid (make-pid (process-id p) p)))
     (set-process-pid! p pid)        ; one canonical pid per process
-    ;; Run the body guarded: a crash terminates just this fiber (with the
-    ;; raised payload as reason), then notifies monitors/links.
-    (set-process-cont! p
-      (lambda ()
-        (let ((reason (catch-reason thunk)))
-          (process-terminate p reason))))
+    ;; The body runs raw; the scheduler wraps each slice with crash handling
+    ;; (so it can sit *outside* the yield prompt -- see run-scheduler).
+    (set-process-cont! p thunk)
     (enqueue! p)
     pid))
-
-;; Run thunk; return 'normal on success, else (cons :error payload).
-(define (catch-reason thunk)
-  (with-exception-handler
-   (lambda (exn)
-     (if (elixir-error? exn)
-         (make-tuple 'error (elixir-error-payload exn))
-         (make-tuple 'error (object->reason exn))))
-   (lambda () (thunk) 'normal)
-   #:unwind? #t))
-
-(define (object->reason exn)
-  (if (exception? exn) 'exception exn))
 
 (define (ex-spawn-link thunk)
   (let ((parent (current-process))
@@ -126,8 +143,8 @@
     (if p (process-pid p)
         (error "self/0 called outside a process"))))
 
-(define (ex-send pid msg)
-  (let ((p (pid-proc pid)))
+(define (ex-send dest msg)
+  (let ((p (pid-proc (resolve-pid dest))))
     (when (process-alive-flag p)
       (set-process-mailbox! p (append (process-mailbox p) (list msg)))
       (when (process-waiting? p)
@@ -260,19 +277,41 @@
      ((runnable?)
       (let ((p (deq! *runq*)))
         (when (process-alive-flag p)          ; skip processes killed while queued
-          (set! *steps* (+ *steps* 1))
-          (parameterize ((current-process p))
-            (call-with-prompt sched-tag
-              (process-cont p)
-              (lambda (k)
-                ;; p suspended in receive/sleep: stash continuation and park
-                (set-process-resume! p k)
-                (set! *blocked* (cons p *blocked*))))))
+          (run-slice! p))
         (loop)))
      ;; run queue empty but processes are blocked: advance the clock and
      ;; fire any due `after` timeouts (this also resolves deadlocks).
      ((fire-due-timeouts!) (loop))
      (else (values)))))
+
+;; Run one time slice of process p.  The exception handler sits OUTSIDE the
+;; yield prompt so a reduction-yield (abort-to-prompt) never has to cross an
+;; unwinding handler -- which a resumed continuation cannot do.  An uncaught
+;; Elixir `raise` terminates just this fiber; a host-level bug propagates.
+(define (run-slice! p)
+  (set! *steps* (+ *steps* 1))
+  (set! *reductions* (reduction-limit))
+  (let ((suspended #f))
+    (with-exception-handler
+     (lambda (exn)
+       (if (elixir-error? exn)
+           (terminate-proc! p (make-tuple 'error (elixir-error-payload exn)))
+           (raise-exception exn)))
+     (lambda ()
+       (parameterize ((current-process p))
+         (call-with-prompt sched-tag
+           (process-cont p)
+           (lambda (k . rest)
+             (set! suspended #t)
+             (if (and (pair? rest) (eq? (car rest) 'yield))
+                 ;; reduction budget exhausted: re-queue, ready to resume
+                 (begin (set-process-cont! p (lambda () (k #f))) (enqueue! p))
+                 ;; suspended in receive/sleep: stash continuation and park
+                 (begin (set-process-resume! p k)
+                        (set! *blocked* (cons p *blocked*))))))))
+     #:unwind? #t)
+    ;; cont returned normally (the body finished): exit with :normal
+    (unless suspended (terminate-proc! p 'normal))))
 
 ;; Run queue is empty but processes are parked.  Advance the logical clock
 ;; to the nearest deadline and wake every process whose timeout has elapsed.

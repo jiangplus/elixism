@@ -27,8 +27,8 @@
     ;; The whole program is one block: a top-level `x = e` scopes `x` over
     ;; the rest, and `defmodule` is just another statement (it registers and
     ;; returns the module name).
-    (('block forms) (compile-block forms 'toplevel))
-    (_ (compile-expr ast 'toplevel))))
+    (('block forms) (compile-block forms 'Elixir))
+    (_ (compile-expr ast 'Elixir))))
 
 ;;; ----------------------------------------------------------------------
 ;;; Modules
@@ -67,7 +67,7 @@
                              (_ (error "defstruct: expected atom field" e))))
           elts))
     (('kwlist pairs)                       ; defstruct a: 1, b: 2
-     (map (lambda (kv) `(cons ',(car kv) ,(compile-expr (cdr kv) 'module))) pairs))
+     (map (lambda (kv) `(cons ',(car kv) ,(compile-expr (cdr kv) 'Elixir))) pairs))
     (_ (error "defstruct: expected a list or keyword list" arg))))
 
 ;;; Protocols.  defprotocol registers, for each declared function, a dispatcher
@@ -191,23 +191,21 @@
                               `(,next))))))))
 
 ;; Match a list of parameter patterns against argvars, then guard, then body.
+;; `mod` is the lexical module: local calls in the body resolve against it,
+;; emitted as a compile-time literal (so closures keep the right module even
+;; when they later run in another process -- no dynamic state).
 (define (compile-heads mod params argvars guard body failcall)
   (let* ((all-vars (append-map pattern-vars params))
          (uniq (delete-duplicates all-vars))
-         (subjects argvars)
-         (env (map (lambda (v) (cons v v)) uniq)))
-    (let ((match-exprs (map (lambda (p s) (compile-pattern p s failcall)) params subjects))
-          (body-code (compile-expr body 'module)))
+         (subjects argvars))
+    (let ((match-exprs (map (lambda (p s) (compile-pattern p s failcall mod)) params subjects))
+          (body-code (compile-expr body mod)))
       `(let ,(map (lambda (v) `(,v (if #f #f))) uniq)
          ,(fold-right (lambda (m acc) `(if ,m ,acc ,failcall))
-                      `(if ,(if guard (compile-guard mod guard) #t)
-                           ,(wrap-mod mod body-code)
+                      `(if ,(if guard `(ex-truthy? ,(compile-expr guard mod)) #t)
+                           ,body-code
                            ,failcall)
                       match-exprs)))))
-
-(define (wrap-mod mod code)
-  ;; Provide the current module name to local calls via a parameter.
-  `(parameterize ((ex-current-module ',mod)) ,code))
 
 ;;; ----------------------------------------------------------------------
 ;;; Patterns -> inline match expressions (side-effecting set! on vars)
@@ -234,7 +232,7 @@
 ;; `seen` would let us treat repeated vars as equality checks; for the
 ;; slice we bind left-to-right (last write wins, like Erlang's non-linear
 ;; patterns are rejected — we keep it simple and bind).
-(define (compile-pattern pat subj fail)
+(define (compile-pattern pat subj fail ctx)
   (match pat
     (('var '_) #t)
     (('var v) `(begin (set! ,v ,subj) #t))
@@ -242,41 +240,41 @@
     (('float x) `(ex-equal? ,subj ,x))
     (('atom a) `(eq? ,subj ',a))
     (('string s) `(ex-equal? ,subj ,s))
-    (('unop "^" e) `(ex-equal? ,subj ,(compile-expr e 'module)))
+    (('unop "^" e) `(ex-equal? ,subj ,(compile-expr e ctx)))
     (('tuple elts)
      (let ((n (length elts)))
        `(and (tuple? ,subj) (= (tuple-size ,subj) ,n)
-             ,@(map (lambda (e i) (compile-pattern e `(tuple-ref ,subj ,i) fail))
+             ,@(map (lambda (e i) (compile-pattern e `(tuple-ref ,subj ,i) fail ctx))
                     elts (iota n)))))
-    (('list elts tail) (compile-list-pattern elts tail subj))
+    (('list elts tail) (compile-list-pattern elts tail subj ctx))
     (('map pairs)
      `(and (emap? ,subj)
            ,@(map (lambda (kv)
-                    (let ((k (compile-expr (car kv) 'module)))
+                    (let ((k (compile-expr (car kv) ctx)))
                       `(and (emap-has-key? ,subj ,k)
-                            ,(compile-pattern (cdr kv) `(emap-ref ,subj ,k 'nil) fail))))
+                            ,(compile-pattern (cdr kv) `(emap-ref ,subj ,k 'nil) fail ctx))))
                   pairs)))
     (('struct mod pairs)
      `(and (emap? ,subj)
            (eq? (emap-ref ,subj '__struct__ #f) ',(alias->symbol mod))
            ,@(map (lambda (kv)
-                    (let ((k (compile-expr (car kv) 'module)))
+                    (let ((k (compile-expr (car kv) ctx)))
                       `(and (emap-has-key? ,subj ,k)
-                            ,(compile-pattern (cdr kv) `(emap-ref ,subj ,k 'nil) fail))))
+                            ,(compile-pattern (cdr kv) `(emap-ref ,subj ,k 'nil) fail ctx))))
                   pairs)))
-    (('binary segs) (compile-binary-pattern segs subj))
+    (('binary segs) (compile-binary-pattern segs subj ctx))
     ;; string prefix match:  "GET " <> rest = request
     (('binop "<>" ('string prefix) rest)
      (let ((n (string-length prefix)))
        `(and (string? ,subj) (>= (string-length ,subj) ,n)
              (string=? (substring ,subj 0 ,n) ,prefix)
-             ,(compile-pattern rest `(substring ,subj ,n (string-length ,subj)) fail))))
-    (_ `(ex-equal? ,subj ,(compile-expr pat 'module)))))
+             ,(compile-pattern rest `(substring ,subj ,n (string-length ,subj)) fail ctx))))
+    (_ `(ex-equal? ,subj ,(compile-expr pat ctx)))))
 
 ;; Binaries are codepoint strings: each non-binary segment consumes exactly
 ;; one codepoint (size specifiers are not honoured), and a trailing
 ;; `var::binary` binds the remainder.  An unsized binary must come last.
-(define (compile-binary-pattern segs subj)
+(define (compile-binary-pattern segs subj ctx)
   (let* ((rev (reverse segs))
          (last-seg (and (pair? rev) (car rev)))
          (rest-bind (and last-seg (binary-rest-seg last-seg)))
@@ -287,10 +285,10 @@
           ,@(map (lambda (seg i)
                    (match seg
                      (('bseg e _)
-                      (compile-pattern e `(char->integer (string-ref ,subj ,i)) #f))))
+                      (compile-pattern e `(char->integer (string-ref ,subj ,i)) #f ctx))))
                  fixed (iota n))
           ,(if rest-bind
-               (compile-pattern rest-bind `(substring ,subj ,n (string-length ,subj)) #f)
+               (compile-pattern rest-bind `(substring ,subj ,n (string-length ,subj)) #f ctx)
                #t))))
 
 ;; If a segment is `var::binary` (the rest-binder), return the inner pattern.
@@ -299,21 +297,14 @@
     (('bseg e type) (and (memq type '(binary bitstring bytes)) e))
     (_ #f)))
 
-(define (compile-list-pattern elts tail subj)
+(define (compile-list-pattern elts tail subj ctx)
   (if (null? elts)
       (if tail
-          (compile-pattern tail subj #f)
+          (compile-pattern tail subj #f ctx)
           `(null? ,subj))
       `(and (pair? ,subj)
-            ,(compile-pattern (car elts) `(car ,subj) #f)
-            ,(compile-list-pattern (cdr elts) tail `(cdr ,subj)))))
-
-;;; ----------------------------------------------------------------------
-;;; Guards
-;;; ----------------------------------------------------------------------
-
-(define (compile-guard mod g)
-  `(ex-truthy? ,(compile-expr g 'module)))
+            ,(compile-pattern (car elts) `(car ,subj) #f ctx)
+            ,(compile-list-pattern (cdr elts) tail `(cdr ,subj) ctx))))
 
 ;;; ----------------------------------------------------------------------
 ;;; Expressions
@@ -415,7 +406,7 @@
                   (let ,(map (lambda (v) `(,v (if #f #f))) vars)
                     ;; a generator pattern that doesn't match filters the
                     ;; element out (Elixir semantics)
-                    (if ,(compile-pattern pat el #f)
+                    (if ,(compile-pattern pat el #f ctx)
                         (lp (cdr ,src) ,(inner a))
                         (lp (cdr ,src) ,a))))))))) ))
 
@@ -447,7 +438,7 @@
                (vars (delete-duplicates (pattern-vars pat))))
            `(let ((,v ,(compile-expr expr ctx)))
               (let ,(map (lambda (x) `(,x (if #f #f))) vars)
-                (if ,(compile-pattern pat v #f)
+                (if ,(compile-pattern pat v #f ctx)
                     ,(compile-with (cdr clauses) body else-cls ctx)
                     ,(if (null? else-cls)
                          v
@@ -512,7 +503,7 @@
              (vars (delete-duplicates (pattern-vars pat))))
          `(let ((,v ,(compile-expr expr ctx)))
             (let ,(map (lambda (x) `(,x (if #f #f))) vars)
-              (if ,(compile-pattern pat v '(ex-match-error))
+              (if ,(compile-pattern pat v '(ex-match-error) ctx)
                   ,(compile-block (cdr stmts) ctx)
                   (ex-match-error))))))
       (_ `(begin ,(compile-expr (car stmts) ctx)
@@ -525,7 +516,7 @@
          (val (gensym "v")))
     `(let ((,val ,(compile-expr expr ctx)))
        (let ,(map (lambda (v) `(,v (if #f #f))) vars)
-         (if ,(compile-pattern pat val '(ex-match-error))
+         (if ,(compile-pattern pat val '(ex-match-error) ctx)
              ,val
              (ex-match-error))))))
 
@@ -554,7 +545,7 @@
               (let ,(map (lambda (v) `(,v (if #f #f))) vars)
                 ,(fold-right
                   (lambda (pv acc)
-                    `(if ,(compile-pattern (car pv) (cdr pv) `(,next)) ,acc (,next)))
+                    `(if ,(compile-pattern (car pv) (cdr pv) `(,next) ctx) ,acc (,next)))
                   `(if ,(if guard `(ex-truthy? ,(compile-expr guard ctx)) #t)
                        ,(wrap (compile-expr body ctx))
                        (,next))
@@ -601,13 +592,13 @@
 (define (compile-capture-named e ctx)
   (match e
     (('binop "/" ('call name '()) ('integer arity))
-     `(ex-fun-ref (ex-current-module) ',name ,arity))
+     `(ex-fun-ref ',ctx ',name ,arity))
     (('binop "/" ('remote m fun '()) ('integer arity))
      `(ex-fun-ref ,(compile-expr m ctx) ',fun ,arity))
     (_ (compile-expr e ctx))))
 
 (define (compile-call name args ctx)
-  `(ex-call-local (ex-current-module) ',name
+  `(ex-call-local ',ctx ',name
                   (list ,@(map (lambda (a) (compile-expr a ctx)) args))))
 
 (define (compile-remote modexpr fun args ctx)
