@@ -1,0 +1,37 @@
+test/test-corelib.scm
+  s_8e9977ffd5237f::t_50899f98a506a4 1-66
+overview.md
+  s_8e9977ffd5237f::t_b5ef9679809e58 19,62,65,124-125
+module/elixir/compiler.scm
+  s_8e9977ffd5237f::t_ec5f1de7e2bf63 23-27
+  s_8e9977ffd5237f::t_5a97e42d0f6c8b 639-641
+  s_8e9977ffd5237f::t_97b44e7c4ea7ee 208,243,374,472,506,571,584,611
+README.md
+  s_8e9977ffd5237f::t_5923fb9370b50e 41-46
+  s_8e9977ffd5237f::t_b5ef9679809e58 70,139,150
+  s_8e9977ffd5237f::t_d8bbe88a36c185 136
+  s_8e9977ffd5237f::t_ae29577545fcf4 151-154
+module/elixir/corelib.scm
+  s_8e9977ffd5237f::t_f210a7cd64349c 1-142
+module/elixir/eval.scm
+  s_8e9977ffd5237f::t_6131b80ff0a7f2 25,30-31,34-40
+  s_8e9977ffd5237f::t_c1b1d1e47109cf 16
+test/run-all.scm
+  s_8e9977ffd5237f::t_4df2c010c328fe 10,18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "282e465d947f0286d4a06512c72d1955efd2fca0",
+  "prompts": {},
+  "sessions": {
+    "s_8e9977ffd5237f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa7bf6bc-f474-4925-a494-a8ea455f13a6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
