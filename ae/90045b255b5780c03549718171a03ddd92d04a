@@ -1,0 +1,42 @@
+module/elixir/compiler.scm
+  s_8e9977ffd5237f::t_e58219a968495f 227
+  s_8e9977ffd5237f::t_2a3b162e6bfaf9 267-273,276-300
+  s_8e9977ffd5237f::t_d177ad34746d9d 338-343
+test/test-integration.scm
+  s_8e9977ffd5237f::t_4a93952b875684 161-176
+overview.md
+  s_8e9977ffd5237f::t_7203008a80fb3f 19,64,112,149
+module/elixir/parser.scm
+  s_8e9977ffd5237f::t_fa22358bbc0fcd 110
+  s_8e9977ffd5237f::t_d5877e53e039f7 304-306,310-336
+module/elixir/runtime.scm
+  s_8e9977ffd5237f::t_f0d17d29803ec4 43
+  s_8e9977ffd5237f::t_ebcf1233250de5 237-245
+design/abi.md
+  s_8e9977ffd5237f::t_f5083b4915bd3b 19
+  s_8e9977ffd5237f::t_bfe2a6f2a99576 61-67
+examples/binary.ex
+  s_8e9977ffd5237f::t_6355096c8bd5e8 1-15
+README.md
+  s_8e9977ffd5237f::t_2d3355d850f8c8 23-24
+  s_8e9977ffd5237f::t_7203008a80fb3f 61,129,140
+  s_8e9977ffd5237f::t_02f7e48099b595 50-54
+module/elixir/lexer.scm
+  s_8e9977ffd5237f::t_e5d43b595fb892 27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "ae90045b255b5780c03549718171a03ddd92d04a",
+  "prompts": {},
+  "sessions": {
+    "s_8e9977ffd5237f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa7bf6bc-f474-4925-a494-a8ea455f13a6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
