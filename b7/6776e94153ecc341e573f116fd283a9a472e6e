@@ -1,0 +1,41 @@
+wasm-node/run.js
+  s_8e9977ffd5237f::t_5599fda8ec141a 1-9,11,13-14,16-25,28-29
+  s_8e9977ffd5237f::t_a1811d3a7d1121 10,12,15,26-27
+wasm-node/bundle.scm
+  s_8e9977ffd5237f::t_91d614b333aaa6 51-52,72-92,106
+  s_8e9977ffd5237f::t_250beacc351ce7 101-104
+  s_8e9977ffd5237f::t_bbf61d26b7e362 67
+  s_8e9977ffd5237f::t_5835824a1938c2 93-100,105
+  s_8e9977ffd5237f::t_33cb50e0810580 19-29,35-39
+  s_8e9977ffd5237f::t_342a70085d5b66 1-18,30-34,40-50,107-142
+  s_8e9977ffd5237f::t_5d53b64ae5224f 53-54,60-66,68-71
+  s_8e9977ffd5237f::t_a196507ee02e75 55-59
+wasm-node/.gitignore
+  s_8e9977ffd5237f::t_fba8741c473d09 1-7
+Makefile
+  s_8e9977ffd5237f::t_fba8741c473d09 52-56
+wasm-node/tests.ex
+  s_8e9977ffd5237f::t_dd0701bda67ae9 1-119
+wasm-node/build.sh
+  s_8e9977ffd5237f::t_3c5f1a9860956f 1-37
+wasm-node/package.json
+  s_8e9977ffd5237f::t_b08cdaabe05eaa 1-11
+wasm-node/README.md
+  s_8e9977ffd5237f::t_f0c7fe6b4a5a79 1-69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "b76776e94153ecc341e573f116fd283a9a472e6e",
+  "prompts": {},
+  "sessions": {
+    "s_8e9977ffd5237f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa7bf6bc-f474-4925-a494-a8ea455f13a6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
