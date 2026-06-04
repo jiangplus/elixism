@@ -1,0 +1,25 @@
+bench-json/wasm/build.sh
+  s_8e9977ffd5237f::t_c5f01908e83750 29-41
+bench-json/README.md
+  s_8e9977ffd5237f::t_0bf6a0723c6bd0 88-95,97
+  s_8e9977ffd5237f::t_8771a35afd6f5f 115,119,121
+  s_8e9977ffd5237f::t_7a34d81f3a83f9 127,129,131-141,144-157,159-161
+wasm-node/build.sh
+  s_8e9977ffd5237f::t_5ad0afa5a46281 43-52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "8cc4023da2b09bb9fa475aba518cae8add81884b",
+  "prompts": {},
+  "sessions": {
+    "s_8e9977ffd5237f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa7bf6bc-f474-4925-a494-a8ea455f13a6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
