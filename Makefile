@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Elixir-on-Hoot build & test.
+# Elixism build & test.
 
 GUILE       ?= guile
 GUILEC      ?= guild compile
@@ -11,7 +11,7 @@ GUILE_FLAGS := -L module -L . --no-auto-compile
 
 help:
 	@echo "make test    - run the full test suite (host Guile)"
-	@echo "make repl    - start an Elixir-on-Hoot REPL"
+	@echo "make repl    - start an Elixism REPL"
 	@echo "make run F=examples/fib.ex   - compile & run an .ex file"
 	@echo "make wasm F=examples/fib.ex  - emit a Hoot program (needs \$$HOOT_DIR)"
 	@echo "make clean   - remove compiled caches"

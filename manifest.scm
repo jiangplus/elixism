@@ -1,5 +1,5 @@
 ;; SPDX-License-Identifier: Apache-2.0
-;; GNU Guix manifest for building/running Elixir-on-Hoot.
+;; GNU Guix manifest for building/running Elixism.
 ;;
 ;; The host test suite needs only a stock Guile 3.  The WebAssembly backend
 ;; additionally needs the bleeding-edge Guile that Hoot requires (guile-next)

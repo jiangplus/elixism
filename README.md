@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
-# Elixir-on-Hoot
+# Elixism
 
 A from-scratch compiler that runs a working subset of **Elixir** on
 **WebAssembly**, by way of [Guile Hoot](https://spritely.institute/hoot/).
@@ -41,7 +41,7 @@ stock Guile (how the tests run) or hands it to Hoot to produce WebAssembly.
 * **Standard library** — a Scheme-implemented core (`Kernel`, `Enum`, `Map`,
   `Keyword`, `List`, `Tuple`, `String`, `Integer`, `Float`, `IO`, `Process`)
   plus higher-level functions **written in Elixir itself** and compiled by
-  elixir-hoot (`Enum.scan`/`reduce_while`/`split_with`/`chunk_by`/`map_reduce`/
+  elixism (`Enum.scan`/`reduce_while`/`split_with`/`chunk_by`/`map_reduce`/
   `take_every`/…, `Integer.digits`/`undigits`, `List.zip`/`unzip`) — the same
   layering the real Elixir stdlib uses. See `module/elixir/corelib.scm`.
 * **Concurrency** — `spawn`/`spawn_link`, `send`, `receive` (selective, with

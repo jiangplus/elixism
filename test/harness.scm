@@ -1,4 +1,4 @@
-;;; Minimal test harness for the Elixir-on-Hoot suite.
+;;; Minimal test harness for the Elixism suite.
 ;;; SPDX-License-Identifier: Apache-2.0
 
 (define-module (test harness)

@@ -3,7 +3,7 @@ commit: n/a
 generated-at: 2026-06-04T00:00:00Z
 -->
 
-# Elixir-on-Hoot
+# Elixism
 
 > A from-scratch compiler that runs a working subset of Elixir on WebAssembly via Guile Hoot — frontend, runtime, standard library, and a fiber-based process model, all in ~2,000 lines of Guile Scheme.
 
@@ -50,7 +50,7 @@ runnable today.
 ## Directory Structure
 
 ```
-elixir-hoot/
+elixism/
 ├── module/elixir/
 │   ├── lexer.scm      # source -> tokens (atoms, numbers, interpolation, ops)
 │   ├── parser.scm     # tokens -> AST (Pratt parser, do/end, clauses)

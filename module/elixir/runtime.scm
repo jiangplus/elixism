@@ -1,4 +1,4 @@
-;;; Elixir-on-Hoot runtime: the value model.
+;;; Elixism runtime: the value model.
 ;;; SPDX-License-Identifier: Apache-2.0
 ;;;
 ;;; This module defines how Elixir terms are represented as Scheme values

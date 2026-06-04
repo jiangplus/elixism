@@ -1,13 +1,13 @@
 <!-- SPDX-License-Identifier: Apache-2.0 -->
-# elixir-hoot on WebAssembly + Node.js
+# elixism on WebAssembly + Node.js
 
-This sub-project compiles the **elixir-hoot standard library to WebAssembly**
+This sub-project compiles the **elixism standard library to WebAssembly**
 (via [Guile Hoot](https://spritely.institute/hoot/)) and runs a self-checking
-Elixir test program under **Node.js** — proving that elixir-hoot code runs in a
+Elixir test program under **Node.js** — proving that elixism code runs in a
 real Wasm host, not just on the host Guile VM.
 
 ```
-tests.ex ──► elixir-hoot compiler (host) ──► Scheme ─┐
+tests.ex ──► elixism compiler (host) ──► Scheme ─┐
 runtime+dispatch+kernel+corelib (host) ──────────────┤ bundle.scm
                                                      ▼
                                             program.scm (one Hoot program)
@@ -30,7 +30,7 @@ node run.js         # load program.wasm and run the Elixir tests
 Expected output:
 
 ```
-Elixir-hoot standard library, running in WebAssembly:
+Elixism standard library, running in WebAssembly:
 
   54/54 passed | failures: []
 
@@ -49,11 +49,11 @@ must define a `Tests.run/0` returning a summary string).
   `String`/`Integer` standard library (both the Scheme-implemented builtins and
   the Elixir-written core library), returning a `"N/M passed | failures: …"`
   summary.
-- **`bundle.scm`** — flattens the elixir-hoot runtime (`runtime`, `dispatch`,
+- **`bundle.scm`** — flattens the elixism runtime (`runtime`, `dispatch`,
   `kernel`) into a single namespace, adds a small compatibility shim
   (a few SRFI-1 / SRFI-13 functions Hoot's `(guile)` doesn't export, plus host
   IO and stubs for the process/fiber layer), AOT-compiles the core library and
-  `tests.ex` with the elixir-hoot compiler, and emits one self-contained Hoot
+  `tests.ex` with the elixism compiler, and emits one self-contained Hoot
   program that ends by calling `Tests.run/0` and printing the result via the
   `host.print` import.
 - **`run.js`** — boots `program.wasm` with Hoot's `reflect.js`, supplies the

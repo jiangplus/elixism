@@ -1,6 +1,6 @@
 #!/usr/bin/env -S guile -L module --no-auto-compile -e main -s
 !#
-;;; exc -- the Elixir-on-Hoot command-line tool.
+;;; exc -- the Elixism command-line tool.
 ;;; SPDX-License-Identifier: Apache-2.0
 ;;;
 ;;;   exc run     FILE.ex      compile and run on the host VM
@@ -30,7 +30,7 @@
 ;; A tiny line-at-a-time REPL.  State (modules) persists across lines.
 (define (repl)
   (reset-elixir!)
-  (display "Elixir-on-Hoot REPL.  Ctrl-D to exit.\n")
+  (display "Elixism REPL.  Ctrl-D to exit.\n")
   (let loop ()
     (display "iex> ")
     (force-output)

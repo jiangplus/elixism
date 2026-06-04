@@ -1,12 +1,12 @@
 #!/bin/sh
-# Build an elixir-hoot program to WebAssembly for Node.js.
+# Build an elixism program to WebAssembly for Node.js.
 # SPDX-License-Identifier: Apache-2.0
 #
 # Usage:  ./build.sh [program.ex]        (default: tests.ex)
 #         HOOT_DIR=/path/to/hoot ./build.sh
 #
 # Pipeline:
-#   1. bundle.scm flattens the elixir-hoot runtime + AOT-compiles the Elixir
+#   1. bundle.scm flattens the elixism runtime + AOT-compiles the Elixir
 #      program into one self-contained Hoot Scheme program (program.scm).
 #   2. Hoot's `guild compile-wasm` compiles that to program.wasm.
 #   3. Hoot's JS runtime (reflect.js + reflect.wasm + wtf8.wasm) is copied in.

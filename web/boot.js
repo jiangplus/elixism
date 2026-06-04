@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-// Boot an Elixir-on-Hoot .wasm in the browser and route IO.puts to the page.
+// Boot an Elixism .wasm in the browser and route IO.puts to the page.
 //
 // `make wasm` produces build/<name>.wasm and copies reflect.js + the Hoot
 // reflection runtime (reflect.wasm, wtf8.wasm) next to this file.  The

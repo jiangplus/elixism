@@ -1,8 +1,8 @@
 {
-  "name": "elixir-hoot-wasm-node",
+  "name": "elixism-wasm-node",
   "version": "0.1.0",
   "private": true,
-  "description": "Run the elixir-hoot standard library compiled to WebAssembly under Node.js",
+  "description": "Run the elixism standard library compiled to WebAssembly under Node.js",
   "license": "Apache-2.0",
   "scripts": {
     "build": "./build.sh",

@@ -1,4 +1,4 @@
-// Run the elixir-hoot stdlib test program (compiled to WebAssembly) in Node.
+// Run the elixism stdlib test program (compiled to WebAssembly) in Node.
 // SPDX-License-Identifier: Apache-2.0
 //
 //   node run.js
@@ -14,7 +14,7 @@ async function main() {
     user_imports: { host: { print: (s) => { summary = s; } } },
   });
 
-  console.log("Elixir-hoot standard library, running in WebAssembly:\n");
+  console.log("Elixism standard library, running in WebAssembly:\n");
   console.log("  " + summary + "\n");
 
   const m = summary && summary.match(/^(\d+)\/(\d+) passed/);

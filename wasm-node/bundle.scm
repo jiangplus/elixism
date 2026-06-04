@@ -1,4 +1,4 @@
-;;; Build a self-contained Hoot program from the elixir-hoot runtime + an
+;;; Build a self-contained Hoot program from the elixism runtime + an
 ;;; Elixir program, ahead-of-time compiled on the host.
 ;;; SPDX-License-Identifier: Apache-2.0
 ;;;

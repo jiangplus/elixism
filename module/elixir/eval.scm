@@ -1,4 +1,4 @@
-;;; Elixir-on-Hoot driver: tie the pipeline together for the host backend.
+;;; Elixism driver: tie the pipeline together for the host backend.
 ;;; SPDX-License-Identifier: Apache-2.0
 ;;;
 ;;; This is the "interpreter" backend used by the test suite: it compiles

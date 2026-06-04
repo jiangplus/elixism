@@ -2,7 +2,7 @@
 ;;; SPDX-License-Identifier: Apache-2.0
 ;;;
 ;;; These functions extend the Scheme-implemented primitives (kernel.scm) with
-;;; higher-level stdlib written in Elixir itself, compiled by elixir-hoot --
+;;; higher-level stdlib written in Elixir itself, compiled by elixism --
 ;;; the same way the real Elixir standard library is built on a small set of
 ;;; primitives.  Semantics follow ../elixir/lib/elixir/lib/{enum,integer,list}.ex.
 ;;;
