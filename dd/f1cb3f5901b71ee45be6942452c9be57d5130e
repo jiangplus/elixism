@@ -1,0 +1,42 @@
+module/elixir/process.scm
+  s_8e9977ffd5237f::t_be96b4e9b629cc 24
+  s_8e9977ffd5237f::t_398d9d4a154f42 89-91,93
+  s_8e9977ffd5237f::t_fa690989c77534 40
+  s_8e9977ffd5237f::t_d243c8ed94ee7a 52-53
+  s_8e9977ffd5237f::t_f8bd29017c9ada 183-193
+README.md
+  s_8e9977ffd5237f::t_e0f10a228b034b 58,126,137
+  s_8e9977ffd5237f::t_ea079687cf64ac 45-47,49-51
+examples/supervisor.ex
+  s_8e9977ffd5237f::t_cc71cd57f36546 1-31
+module/elixir/kernel.scm
+  s_8e9977ffd5237f::t_b63274f36c822f 436-480
+  s_8e9977ffd5237f::t_5c461c4927d9bc 37
+  s_8e9977ffd5237f::t_019c240b8ed95c 366-368
+design/processes.md
+  s_8e9977ffd5237f::t_faad262834228d 100-115
+test/test-integration.scm
+  s_8e9977ffd5237f::t_c128f891e54eca 153-154
+test/test-process.scm
+  s_8e9977ffd5237f::t_454e6af790db6a 212-246
+module/elixir/compiler.scm
+  s_8e9977ffd5237f::t_58de811241297d 309-313
+overview.md
+  s_8e9977ffd5237f::t_e0f10a228b034b 19,64,127,149
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "ddf1cb3f5901b71ee45be6942452c9be57d5130e",
+  "prompts": {},
+  "sessions": {
+    "s_8e9977ffd5237f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa7bf6bc-f474-4925-a494-a8ea455f13a6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
