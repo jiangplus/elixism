@@ -9,6 +9,8 @@
 
 (define-module (elixir kernel)
   #:use-module (srfi srfi-1)
+  #:use-module (ice-9 textual-ports)
+  #:use-module (rnrs bytevectors)
   #:use-module (elixir runtime)
   #:use-module (elixir dispatch)
   #:use-module (elixir process)
@@ -24,6 +26,8 @@
 (define (install-stdlib!)
   (install-kernel!)
   (install-io!)
+  (install-file!)
+  (install-system!)
   (install-enum!)
   (install-map!)
   (install-list!)
@@ -66,6 +70,7 @@
   (defn 'Kernel 'elem 2 (lambda (t i) (tuple-ref t i)))
   (defn 'Kernel 'tuple_size 1 (lambda (t) (tuple-size t)))
   (defn 'Kernel 'map_size 1 (lambda (m) (emap-size m)))
+  (defn 'Kernel 'byte_size 1 (lambda (s) (bytevector-length (string->utf8 s))))
   (defn 'Kernel 'to_string 1 (lambda (x) (ex->display x)))
   (defn 'Kernel 'inspect 1 (lambda (x) (inspect x)))
   (defn 'Kernel 'raise 1 (lambda (x) (ex-raise x)))
@@ -85,6 +90,35 @@
   (defn 'IO 'write 1 (lambda (x) (let ((s (*io-sink*)))
                                    (if s (s (ex->display x)) (display (ex->display x))))
                        'ok)))
+
+;;; File and System — host-only helpers (the WebAssembly backend has neither a
+;;; filesystem nor a monotonic clock; these are for running on the host VM).
+(define (install-file!)
+  (defn 'File 'read! 1
+    (lambda (path)
+      (call-with-input-file path get-string-all)))
+  (defn 'File 'read 1
+    (lambda (path)
+      (if (file-exists? path)
+          (make-tuple 'ok (call-with-input-file path get-string-all))
+          (make-tuple 'error 'enoent)))))
+
+(define (install-system!)
+  ;; monotonic_time(unit) -> integer; unit in :second/:millisecond/:microsecond.
+  (defn 'System 'monotonic_time 1
+    (lambda (unit)
+      (let* ((rt (get-internal-real-time))
+             (per internal-time-units-per-second)
+             (scale (case unit
+                      ((second) 1)
+                      ((millisecond) 1000)
+                      ((microsecond) 1000000)
+                      (else 1000000))))
+        (quotient (* rt scale) per))))
+  (defn 'System 'monotonic_time 0
+    (lambda ()
+      (quotient (* (get-internal-real-time) 1000000)
+                internal-time-units-per-second))))
 
 ;;; ----------------------------------------------------------------------
 ;;; Enum
@@ -238,7 +272,12 @@
   (defn 'Float 'round 2 (lambda (x n) (let ((f (expt 10 n))) (/ (round (* x f)) f))))
   (defn 'Float 'ceil 1 (lambda (x) (exact->inexact (ceiling x))))
   (defn 'Float 'floor 1 (lambda (x) (exact->inexact (floor x))))
-  (defn 'Float 'to_string 1 (lambda (x) (number->string (exact->inexact x)))))
+  (defn 'Float 'to_string 1 (lambda (x) (number->string (exact->inexact x))))
+  ;; Float.parse("3.14") -> {3.14, ""} ; non-number -> :error
+  (defn 'Float 'parse 1
+    (lambda (s)
+      (let ((n (string->number (string-trim s))))
+        (if n (make-tuple (exact->inexact n) "") 'error)))))
 
 ;;; ----------------------------------------------------------------------
 ;;; List
@@ -291,6 +330,7 @@
   (defn 'String 'trim 1 (lambda (s) (string-trim-both s)))
   (defn 'String 'to_atom 1 (lambda (s) (string->symbol s)))
   (defn 'String 'to_integer 1 (lambda (s) (string->number s)))
+  (defn 'String 'to_float 1 (lambda (s) (exact->inexact (string->number (string-trim-both s)))))
   (defn 'String 'contains? 2 (lambda (s sub) (->ex-bool (and (string-contains s sub) #t))))
   (defn 'String 'split 2 (lambda (s sep) (string-split-str s sep)))
   (defn 'String 'replace 3 (lambda (s a b) (string-replace-all s a b)))

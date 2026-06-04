@@ -6,3 +6,6 @@ web/reflect.js
 web/reflect.wasm
 web/wtf8.wasm
 .DS_Store
+# Jason is cloned by bench-json/run.sh as an external dependency (its own repo,
+# ~14 MB of bench data); don't vendor it into this repo.
+jason/
