@@ -85,16 +85,16 @@ A representative run (Apple M-series, Guile 3.0.11, OTP 29 / Elixir 1.19, Hoot 0
   file                        size      Jason     Elixism      Elixism      Guile     WASM   nodes
                            (bytes)       BEAM       Guile    Hoot/WASM     /Jason   /Jason   (match)
   --------------------------------------------------------------------------------------------
-  blockchain.json           17,942         94       3,459       61,289        37x     652x   ✓ 447
-  utf-8-escaped.json        26,862        336       5,961       76,103        18x     226x   ✓ 1
-  utf-8-unescaped.json      14,268         96       1,224       20,382        13x     212x   ✓ 1
-  github.json               55,528        298      10,966      164,109        37x     551x   ✓ 1033
-  pokedex.json              56,828        507      14,424      231,684        28x     457x   ✓ 3779
-  json-generator.json      110,755        768      27,888      398,311        36x     519x   ✓ 4901
-  giphy.json               123,731      1,117      29,009      391,329        26x     350x   ✓ 3805
-  canada.json            2,251,051     29,315     746,282            —        25x        —   ✓ 167179
+  blockchain.json           17,942         95       1,249       10,376        13x     109x   ✓ 447
+  utf-8-escaped.json        26,862        313       4,205       17,396        13x      56x   ✓ 1
+  utf-8-unescaped.json      14,268         99       1,134        6,637        11x      67x   ✓ 1
+  github.json               55,528        278       3,183       18,705        11x      67x   ✓ 1033
+  pokedex.json              56,828        515       5,201       36,681        10x      71x   ✓ 3779
+  json-generator.json      110,755        768       9,588       56,181        12x      73x   ✓ 4901
+  giphy.json               123,731      1,132      14,643       78,400        13x      69x   ✓ 3805
+  canada.json            2,251,051     29,316     237,049            —         8x        —   ✓ 167179
   --------------------------------------------------------------------------------------------
-  (sum / relative)                     32,531     839,213    1,343,207        26x     418x
+  (sum / relative)                     32,516     276,252      224,376         8x      70x
 ```
 
 **Measurement.** All three columns time only the parse, averaged over repeated
@@ -112,50 +112,47 @@ runs after a warm-up. For the WASM column specifically:
 - **Correctness:** every file's node count matches across all three runtimes (✓)
   — they build identical structures.
 - **The three runtimes (aggregate, over the files WASM ran):**
-  **Jason 1× · Elixism/Guile ~29× · Elixism/Hoot-WASM ~418×.**
+  **Jason 1× · Elixism/Guile ~12× · Elixism/Hoot-WASM ~70×.**
   - **Jason** is a *compile-time-specialized byte state machine* on the
     *JIT-compiled BEAM* — native binary matching, no per-call overhead.
-  - **Elixism/Guile** is a *generic recursive-descent parser* over a charlist,
-    running as *native Guile VM bytecode*. ~29× off a hand-tuned native library
-    is close for a from-scratch subset compiler.
-  - **Elixism/Hoot-WASM** is the **same parser, ~14× slower than Guile**. Hoot
-    compiles Scheme to WebAssembly (Wasm-GC), and each parse crosses the
-    JS↔Wasm `reflect.js` boundary; the Wasm GC and the lack of a native VM are
-    the cost. This is the price of portability — the identical parser runs in a
-    browser or a Cloudflare Worker.
+  - **Elixism/Guile** is a *generic recursive-descent parser*, running as
+    *native Guile VM bytecode* — ~12× off a hand-tuned native library.
+  - **Elixism/Hoot-WASM** is the **same parser, ~6× slower than Guile** (every
+    file under ~110×, most under 75×). Hoot compiles Scheme to WebAssembly
+    (Wasm-GC); the Wasm GC and the lack of a native VM are the cost. The
+    identical parser runs in a browser or a Cloudflare Worker.
 
-### Optimizations — and why each runtime wanted a different one
+### Optimizations — how WASM went from ~418× to ~70×
 
-The two runtimes have different bottlenecks, so they were tuned differently:
+The starting point was Jason 1× / Guile ~26× / WASM ~418×. A sequence of changes,
+each measured, brought WASM within 100× (and Guile to ~12×):
 
-**Guile — micro-optimize the native hot path.** Running as native VM bytecode,
-the cost is per-call instructions and allocation in dispatch. From ~192× to ~26×:
-
-1. **Compiled runtime** (~6×, the big one). The modules used to load with
-   `--no-auto-compile`, running the value model and dispatch in Guile's
-   tree-walking interpreter; compiling to bytecode (`make build`) is ~6× faster.
-2. **Dispatch hot path** (~15%). `ex-call-local`/`ex-call-remote` allocated two
-   `and=>` closures and a `(cons name arity)` hash key per call and used
-   `equal?`-hashing. Now: no closures, and the registry is symbol-keyed with
-   `eq?`-hashing + an arity alist — zero per-call allocation in lookup.
-3. **Lone-process pre-emption elision** (~4%) — see
-   [`../design/preemption.md`](../design/preemption.md).
-
-**WASM — cut allocation, and shrink the binary.** Under Wasm-GC, *allocation* is
-the dominant cost and there's a binary-level lever Guile doesn't have:
-
-1. The **same dispatch change helps ~2× more here (~30%)** — removing per-call
-   allocation pays off disproportionately when every allocation is a Wasm-GC
-   struct. (Compile-level `-O3` on the Hoot output gives nothing: the parser
-   dispatches *dynamically* through the registry, so there are no static call
-   sites to inline.)
-2. **`wasm-opt -O3`** (Binaryen) on the compiled module — a WebAssembly-specific
-   binary optimizer — shrinks it **~15–23%**. That doesn't change parse speed but
-   speeds **cold start** and cuts bandwidth in the browser and on Cloudflare
-   Workers, where module size matters. (Applied automatically by the `build.sh`
-   scripts when `wasm-opt` is on `PATH`.)
+1. **Compiled runtime** (~6×). The modules used to load with `--no-auto-compile`,
+   running the value model and dispatch in Guile's tree-walking interpreter;
+   compiling to bytecode (`make build`) is ~6× faster.
+2. **Dispatch hot path** + **lone-process pre-emption elision** (~20% on Guile).
+   No `and=>` closures, a symbol-keyed `eq?`-hashed registry, and the reduction
+   counter skips work when only one process is alive
+   ([`../design/preemption.md`](../design/preemption.md)).
+3. **Direct calls** (WASM **~2.5×**). The compiler now resolves a call to a
+   function it can see at compile time into a *direct* Scheme call (a hoisted
+   `define` per function), instead of a runtime registry lookup + `apply` + a
+   per-call args-list allocation. The registry remains the fallback for stdlib
+   and anything dynamic. Eliminating the per-call allocation pays off ~2× more on
+   Wasm-GC than on Guile. A handful of the hottest stdlib calls (`Map.put`,
+   `Map.get`, …) are likewise compiled to **intrinsics** — direct runtime-
+   primitive calls.
+4. **Scan primitives** (WASM **~3×**, Guile ~2×). Profiling showed the cost was a
+   function call *per character* in the inner loops (whitespace, string bodies,
+   number runs) — not the charlist (only ~10% of parse time). Those scans now run
+   as tight host loops in the runtime (`ex-skip-ws`/`ex-scan-string`/
+   `ex-scan-number`), so the parser makes one call *per token* instead of one per
+   character. This is the change that pushed WASM under 100×.
+5. **`wasm-opt -O3`** (Binaryen) shrinks the module ~15–23% — faster cold start /
+   less bandwidth in the browser and on Cloudflare Workers (no parse-speed
+   effect). Applied by `build.sh` when `wasm-opt` is on `PATH`.
 
 The takeaway isn't "Elixism is slow" — it's that one parser, written once in an
-Elixir subset, runs correctly as native bytecode *and* as WebAssembly, each tuned
-to its runtime, landing within ~1–2 orders of magnitude of a heavily-optimized
-native library.
+Elixir subset, runs correctly as native bytecode *and* as WebAssembly, within an
+order of magnitude (Guile) and well within two (WASM) of a heavily-optimized,
+hand-written native library.

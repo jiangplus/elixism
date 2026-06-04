@@ -25,15 +25,85 @@
 ;; the compiler emits in call/constructor code.
 (define (mangle v) (string->symbol (string-append "e:" (symbol->string v))))
 
+;;; Direct calls.  Every function defined in this compilation unit is bound to a
+;;; fresh top-level Scheme variable (a "hoisted define") *in addition* to being
+;;; registered.  A call whose (module, name, arity) is known at compile time then
+;;; emits a *direct* Scheme call to that variable -- no registry lookup, no
+;;; `apply`, and no per-call args-list allocation -- and the host/Hoot compilers
+;;; can inline it.  Unknown targets (Kernel builtins, the separately-compiled
+;;; core library, anything dynamic) fall back to the runtime dispatch.
+(define *fn-table* (make-parameter #f))  ; hash: (list mod name arity) -> gensym
+(define *hoist*    (make-parameter #f))  ; mutable cell: (list of `(define g lam))
+
+(define (fn-gensym mod name arity)
+  (let ((t (*fn-table*)))
+    (and t (hash-ref t (list mod name arity)))))
+
+(define (push-hoist! form)
+  (let ((cell (*hoist*))) (set-car! cell (cons form (car cell)))))
+
+;; A direct call keeps the reduction tick (pre-emption) but spreads its args.
+(define (direct-call g cargs) `(begin (reduce!) (,g ,@cargs)))
+
+;; Intrinsics: a handful of the hottest stdlib functions emit a *direct* call to
+;; the underlying runtime primitive, skipping the registry, the args-list
+;; allocation, and `apply`.  Each form is byte-for-byte equivalent to the
+;; function's kernel.scm definition, so semantics are unchanged.  `cargs` are
+;; the already-compiled argument expressions.
+(define *intrinsics*
+  `(((Map  put 3)      . ,(lambda (a) `(emap-put ,@a)))
+    ((Map  get 2)      . ,(lambda (a) `(emap-ref ,(car a) ,(cadr a) 'nil)))
+    ((Map  get 3)      . ,(lambda (a) `(emap-ref ,@a)))
+    ((Map  has_key? 2) . ,(lambda (a) `(->ex-bool (emap-has-key? ,@a))))
+    ((List to_string 1) . ,(lambda (a) `(ex->display ,(car a))))
+    ;; Fast scanning primitives for parsers (see runtime.scm); one host loop per
+    ;; token instead of an Elixir call per character.
+    ((Scan ws 1)        . ,(lambda (a) `(ex-skip-ws ,(car a))))
+    ((Scan string 1)    . ,(lambda (a) `(ex-scan-string ,(car a))))
+    ((Scan number 1)    . ,(lambda (a) `(ex-scan-number ,(car a))))))
+
+(define (intrinsic-form mod fun arity cargs)
+  (let ((e (assoc (list mod fun arity) *intrinsics*)))
+    (and e ((cdr e) cargs))))
+
 ;; Returns a Scheme `(begin ...)` installing all modules/defs.
 (define (compile-program ast)
+  (let ((table (make-hash-table))
+        (cell  (list '())))
+    (parameterize ((*fn-table* table) (*hoist* cell))
+      (prescan-functions! ast table)
+      (let ((body (match ast
+                    (('block '()) '(if #f #f))
+                    ;; The whole program is one block: a top-level `x = e`
+                    ;; scopes `x` over the rest, and `defmodule` is just another
+                    ;; statement (it registers and returns the module name).
+                    (('block forms) (compile-block forms 'Elixir))
+                    (_ (compile-expr ast 'Elixir))))
+            (defines (reverse (car cell))))
+        ;; Hoist the per-function defines to the front (internal defines /
+        ;; letrec* semantics -> mutual recursion and forward references work).
+        (if (null? defines) body `(begin ,@defines ,body))))))
+
+;; Assign a gensym to every (module, name, arity) defined via `defmodule`, so
+;; calls can be resolved during the main compile pass that follows.
+(define (prescan-functions! ast table)
   (match ast
-    (('block '()) '(if #f #f))
-    ;; The whole program is one block: a top-level `x = e` scopes `x` over
-    ;; the rest, and `defmodule` is just another statement (it registers and
-    ;; returns the module name).
-    (('block forms) (compile-block forms 'Elixir))
-    (_ (compile-expr ast 'Elixir))))
+    (('block forms) (for-each (lambda (f) (prescan-form! f table)) forms))
+    (_ (prescan-form! ast table))))
+
+(define (prescan-form! form table)
+  (match form
+    (('defmodule name body)
+     (let* ((mod (alias->symbol name))
+            (forms (match body (('block fs) fs) (_ (list body))))
+            (defs (append-map expand-defaults
+                              (filter (lambda (f) (eq? (car f) 'def)) forms)))
+            (groups (group-defs defs)))
+       (for-each (lambda (g)
+                   (match g (((nm . ar) . _)
+                             (hash-set! table (list mod nm ar) (gensym "exfn_")))))
+                 groups)))
+    (_ #t)))
 
 ;;; ----------------------------------------------------------------------
 ;;; Modules
@@ -177,11 +247,15 @@
     (((name . arity) . clauses)
      (let* ((kind (caar clauses))
             (argvars (map (lambda (i) (gensym "a")) (iota arity)))
-            (fail '(ex-no-clause)))
-       `(register-function!
-         ',mod ',name ,arity ',kind
-         (lambda ,argvars
-           ,(compile-clauses mod clauses argvars fail)))))))
+            (fail '(ex-no-clause))
+            (lam `(lambda ,argvars ,(compile-clauses mod clauses argvars fail)))
+            (g (fn-gensym mod name arity)))
+       (if g
+           ;; Hoist the lambda to a top-level define; register a reference to it
+           ;; so remote/dynamic dispatch and direct calls share one procedure.
+           (begin (push-hoist! `(define ,g ,lam))
+                  `(register-function! ',mod ',name ,arity ',kind ,g))
+           `(register-function! ',mod ',name ,arity ',kind ,lam))))))
 
 ;; Try each clause; first match wins, else `fail`.
 (define (compile-clauses mod clauses argvars fail)
@@ -670,15 +744,23 @@
     (_ (compile-expr e ctx))))
 
 (define (compile-call name args ctx)
-  `(ex-call-local ',ctx ',name
-                  (list ,@(map (lambda (a) (compile-expr a ctx)) args))))
+  (let ((cargs (map (lambda (a) (compile-expr a ctx)) args))
+        (g (fn-gensym ctx name (length args))))
+    (if g
+        (direct-call g cargs)
+        `(ex-call-local ',ctx ',name (list ,@cargs)))))
 
 (define (compile-remote modexpr fun args ctx)
   (match modexpr
     ;; Module remote call:  Mod.fun(args)
     (('alias parts)
-     `(ex-call-remote ',(string->symbol (string-join (map symbol->string parts) "."))
-                      ',fun (list ,@(map (lambda (a) (compile-expr a ctx)) args))))
+     (let* ((mod (string->symbol (string-join (map symbol->string parts) ".")))
+            (cargs (map (lambda (a) (compile-expr a ctx)) args))
+            (g (fn-gensym mod fun (length args))))
+       (cond
+        (g (direct-call g cargs))
+        ((intrinsic-form mod fun (length args) cargs))  ; => the form, or #f
+        (else `(ex-call-remote ',mod ',fun (list ,@cargs))))))
     ;; Dot on a value:  map.field (no args -> field access) or
     ;; value.fun(args) (field holds a function -> call it).
     (_ (if (null? args)

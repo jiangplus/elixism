@@ -23,18 +23,27 @@ defmodule Json do
 
   defp value([?{ | t]), do: object(skip_ws(t), %{})
   defp value([?[ | t]), do: array(skip_ws(t), [])
-  defp value([?" | t]), do: string(t, [])
+  defp value([?" | t]), do: parse_string(t)
   defp value([?t, ?r, ?u, ?e | t]), do: {true, t}
   defp value([?f, ?a, ?l, ?s, ?e | t]), do: {false, t}
   defp value([?n, ?u, ?l, ?l | t]), do: {nil, t}
-  defp value(chars), do: number(chars)
+  defp value(chars), do: Scan.number(chars)
+
+  # Fast path: scan a whole no-escape string with one host loop; only strings
+  # that actually contain a backslash fall back to the char-by-char path.
+  defp parse_string(t) do
+    case Scan.string(t) do
+      :escape -> string(t, [])
+      result -> result
+    end
+  end
 
   # ---- objects --------------------------------------------------------------
 
   defp object([?} | t], acc), do: {acc, t}
 
   defp object([?" | t], acc) do
-    {key, rest} = string(t, [])
+    {key, rest} = parse_string(t)
 
     case skip_ws(rest) do
       [?: | rest2] ->
@@ -109,31 +118,9 @@ defmodule Json do
   defp hex(c) when c >= ?a and c <= ?f, do: c - ?a + 10
   defp hex(c) when c >= ?A and c <= ?F, do: c - ?A + 10
 
-  # ---- numbers --------------------------------------------------------------
+  # ---- whitespace (one host-loop scan, not a call per space) ----------------
 
-  # Accumulate the numeric run, then decide integer vs float.
-  defp number(chars), do: number(chars, [], false)
-
-  defp number([c | t], acc, isf) when c >= ?0 and c <= ?9, do: number(t, [c | acc], isf)
-  defp number([?- | t], acc, isf), do: number(t, [?- | acc], isf)
-  defp number([?+ | t], acc, isf), do: number(t, [?+ | acc], isf)
-  defp number([?. | t], acc, _isf), do: number(t, [?. | acc], true)
-  defp number([?e | t], acc, _isf), do: number(t, [?e | acc], true)
-  defp number([?E | t], acc, _isf), do: number(t, [?e | acc], true)
-
-  defp number(rest, acc, isf) do
-    str = List.to_string(Enum.reverse(acc))
-    num = if isf, do: String.to_float(str), else: String.to_integer(str)
-    {num, rest}
-  end
-
-  # ---- whitespace -----------------------------------------------------------
-
-  defp skip_ws([?\s | t]), do: skip_ws(t)
-  defp skip_ws([?\t | t]), do: skip_ws(t)
-  defp skip_ws([?\n | t]), do: skip_ws(t)
-  defp skip_ws([?\r | t]), do: skip_ws(t)
-  defp skip_ws(chars), do: chars
+  defp skip_ws(chars), do: Scan.ws(chars)
 
   # ---- structural fingerprint (for cross-runtime correctness checks) --------
 

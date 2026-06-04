@@ -42,6 +42,7 @@
             ex-range ex-list-difference string->charlist charlist->string
             ex-enumerate ex-into ex-bin-seg string-be->int bin-seg-width
             ex-build-binary binary-bits-ref
+            ex-skip-ws ex-scan-string ex-scan-number
             ;; inspection
             inspect ex->display
             ;; errors
@@ -234,6 +235,51 @@
 
 (define (string->charlist s) (map char->integer (string->list s)))
 (define (charlist->string cl) (list->string (map integer->char cl)))
+
+;;; Fast scanning primitives.  A recursive-descent parser written in Elixir
+;;; makes one function call *per character* in its inner loops (whitespace,
+;;; string content, number runs) -- expensive, and especially so on Wasm-GC.
+;;; These run the same scans as tight host loops over a charlist, so the Elixir
+;;; parser makes one call per *token* instead of one per character.
+
+;; reversed list of codepoints -> string (in original order), one pass.
+(define (rev-cps->string acc)
+  (list->string
+   (let loop ((a acc) (out '()))
+     (if (null? a) out (loop (cdr a) (cons (integer->char (car a)) out))))))
+
+;; Skip leading JSON whitespace; returns the rest of the charlist.
+(define (ex-skip-ws cl)
+  (if (and (pair? cl)
+           (let ((c (car cl)))
+             (or (eqv? c 32) (eqv? c 9) (eqv? c 10) (eqv? c 13))))
+      (ex-skip-ws (cdr cl))
+      cl))
+
+;; Scan a JSON string body (the chars after the opening quote).  Returns
+;; {content, rest} when the closing quote is reached with no escape; returns the
+;; atom 'escape when a backslash (or end) is hit, so the caller can fall back to
+;; a char-by-char path that handles escapes.
+(define (ex-scan-string cl)
+  (let loop ((cl cl) (acc '()))
+    (if (pair? cl)
+        (let ((c (car cl)))
+          (cond ((eqv? c 34) (make-tuple (rev-cps->string acc) (cdr cl)))  ; "
+                ((eqv? c 92) 'escape)                                       ; \
+                (else (loop (cdr cl) (cons c acc)))))
+        'escape)))
+
+;; Scan a JSON number run; returns {number, rest}.  string->number yields an
+;; exact integer or a flonum, matching JSON's integer/float distinction.
+(define (ex-scan-number cl)
+  (let loop ((cl cl) (acc '()))
+    (if (and (pair? cl)
+             (let ((c (car cl)))
+               (or (and (>= c 48) (<= c 57))          ; 0-9
+                   (eqv? c 45) (eqv? c 43)             ; - +
+                   (eqv? c 46) (eqv? c 101) (eqv? c 69)))) ; . e E
+        (loop (cdr cl) (cons (car cl) acc))
+        (make-tuple (string->number (rev-cps->string acc)) cl))))
 
 ;; One segment of a `<<>>` binary, rendered to a string (binaries are modelled
 ;; as codepoint strings here -- see design/abi.md).  A `binary`/`bitstring`
