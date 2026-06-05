@@ -131,6 +131,10 @@
 ;;; 2b. Compatibility shim.
 (emit-all
  '((define-foreign %host-print "host" "print" (ref string) -> none)
+   ;; host.sql(sql, params-json) -> rows-json : the runtime's SQLite bridge.
+   ;; The JS host owns the database (Node's node:sqlite); Elixir issues SQL
+   ;; through it — the same FFI shape Node uses to own the socket.
+   (define-foreign %host-sql "host" "sql" (ref string) (ref string) -> (ref string))
    ;; The process/fiber layer is not part of the functional-stdlib demo; stub
    ;; the names install-stdlib! registers so it can run.
    (define (reduce!) #t)                         ; no pre-emption here
@@ -183,6 +187,9 @@
 
 ;;; 4. Install the Scheme builtins, then the Elixir-written core library.
 (emit '(install-stdlib!))
+;; Expose the host SQLite bridge to Elixir as Host.sql/2 (Wasm only; on the host
+;; this module name is simply unregistered).
+(emit '(register-builtin! 'Host 'sql 2 (lambda (q p) (%host-sql q p))))
 (emit (compile-program (parse corelib-source)))
 
 ;;; 5. The user program (defmodule Tests / Color), AOT-compiled.
