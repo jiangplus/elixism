@@ -663,6 +663,9 @@
       ("||" `(let ((lv ,lc)) (if (ex-truthy? lv) lv ,rc)))
       ("|>" (compile-pipe l r ctx))
       ("**" `(expt ,lc ,rc))
+      ;; Bitwise operators (Elixir's Bitwise): shifts are arithmetic
+      ("<<<" `(ash ,lc ,rc)) (">>>" `(ash ,lc (- ,rc)))
+      ("&&&" `(logand ,lc ,rc)) ("|||" `(logior ,lc ,rc)) ("^^^" `(logxor ,lc ,rc))
       ;; `::` only appears in typespecs (never compiled) and binary specs
       ;; (handled in parse-binary); as a fallback, yield the value side.
       ("::" lc)

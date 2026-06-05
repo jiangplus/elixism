@@ -21,14 +21,17 @@
   (value token-value)
   (line token-line))
 
-;; Multi-char operators, longest first so we match greedily.
+;; Multi-char operators.  match-operator is first-match, so the list MUST be
+;; strictly longest-first: every operator precedes any of its prefixes
+;; (e.g. &&& before &&, === before ==).
 (define operators
-  '("<<~" "~>>" "<~>" "<<<" ">>>" "..." "+++" "---"
-    "<<" ">>"
-    "\\\\"
-    "->" "=>" "==" "!=" "===" "!==" "<=" ">=" "&&" "||" "++" "--"
-    "<>" "|>" "::" ".." "//" "<-" "&&&" "|||" "<~" "~>" "<|>" "**"
-    "=~" "@" "&" "^" "+" "-" "*" "/" "<" ">" "=" "|" "."))
+  '(;; 3-char
+    "<<~" "~>>" "<~>" "<<<" ">>>" "..." "+++" "---" "===" "!==" "&&&" "|||" "^^^" "<|>"
+    ;; 2-char
+    "<<" ">>" "\\\\" "->" "=>" "==" "!=" "<=" ">=" "&&" "||" "++" "--"
+    "<>" "|>" "::" ".." "//" "<-" "<~" "~>" "**" "=~"
+    ;; 1-char
+    "@" "&" "^" "+" "-" "*" "/" "<" ">" "=" "|" "."))
 
 (define (id-start? c) (or (char-alphabetic? c) (char=? c #\_)))
 (define (id-char? c) (or (char-alphabetic? c) (char-numeric? c) (char=? c #\_)))

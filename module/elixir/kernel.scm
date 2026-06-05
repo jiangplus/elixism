@@ -43,7 +43,18 @@
   (install-genserver!)
   (install-supervisor!)
   (install-store!)
+  (install-bitwise!)
   'ok)
+
+;; Bitwise (Elixir's Bitwise module).  The <<< >>> &&& ||| ^^^ operators compile
+;; directly (compiler.scm); these are the function forms.
+(define (install-bitwise!)
+  (defn 'Bitwise 'band 2 (lambda (a b) (logand a b)))
+  (defn 'Bitwise 'bor  2 (lambda (a b) (logior a b)))
+  (defn 'Bitwise 'bxor 2 (lambda (a b) (logxor a b)))
+  (defn 'Bitwise 'bnot 1 (lambda (a) (lognot a)))
+  (defn 'Bitwise 'bsl  2 (lambda (a n) (ash a n)))
+  (defn 'Bitwise 'bsr  2 (lambda (a n) (ash a (- n)))))
 
 (define (defn mod name arity proc) (register-builtin! mod name arity proc))
 
