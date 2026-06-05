@@ -20,7 +20,7 @@ async function main() {
   let summary = null;
   await Scheme.load_main("program.wasm", {
     reflect_wasm_dir: __dirname,
-    user_imports: { host: { print: (s) => { summary = s; } } },
+    user_imports: { host: { print: (s) => { summary = s; }, sql: () => "[]" } },
   });
 
   console.log("Elixism standard library, running in WebAssembly:\n");
