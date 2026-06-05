@@ -42,9 +42,28 @@
   (install-process!)
   (install-genserver!)
   (install-supervisor!)
+  (install-store!)
   'ok)
 
 (define (defn mod name arity proc) (register-builtin! mod name arity proc))
+
+;;; ----------------------------------------------------------------------
+;;; Store — a process-free persistent key-value store.  Unlike a GenServer
+;;; (which needs the scheduler running), this is a plain module-level table in
+;;; the runtime's memory, so it survives across separate calls into a *loaded*
+;;; program — e.g. across per-request handler.call's into one Wasm instance.
+;;; It is a minimal in-memory Repo / ETS stand-in: keep a whole table (an Elixir
+;;; map) under a named slot and use Map.* to update it, then put it back.
+;;; install-stdlib! re-creates it, so host resets (reset-elixir!) stay isolated.
+;;; ----------------------------------------------------------------------
+(define *store* #f)
+
+(define (install-store!)
+  (set! *store* (make-hash-table))
+  (defn 'Store 'get 1 (lambda (k) (hash-ref *store* k 'nil)))
+  (defn 'Store 'get 2 (lambda (k d) (hash-ref *store* k d)))
+  (defn 'Store 'put 2 (lambda (k v) (hash-set! *store* k v) v))
+  (defn 'Store 'delete 1 (lambda (k) (hash-remove! *store* k) 'nil)))
 
 ;;; ----------------------------------------------------------------------
 ;;; Kernel  (auto-imported)
