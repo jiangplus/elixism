@@ -1,0 +1,37 @@
+frontend/transpiled/check_ops.sh
+  s_8e9977ffd5237f::t_a45637e992e110 1-23
+frontend/README.md
+  s_8e9977ffd5237f::t_8313b3100f517e 147-164
+frontend/transpiled/tokenizer.ex
+  s_8e9977ffd5237f::t_382f8209e84fec 274-292
+  s_8e9977ffd5237f::t_7fcea6c7a34525 334-348
+  s_8e9977ffd5237f::t_4fce5edb7a9bcb 57-273,293-333,349-369
+frontend/transpiled/dump_elixism_full.ex
+  s_8e9977ffd5237f::t_07f34c7e5b43b6 1-14
+frontend/transpiled/corpus-ops.txt
+  s_8e9977ffd5237f::t_23052e6fbeb36d 1-51
+frontend/transpiled/check_multiline.sh
+  s_8e9977ffd5237f::t_be74244d015e40 1-25
+frontend/transpiled/corpus-multiline.txt
+  s_8e9977ffd5237f::t_5b276aa6057aee 1-16
+frontend/transpiled/dump_beam_ops.exs
+  s_8e9977ffd5237f::t_aaebb82e8f6915 1-25
+frontend/transpiled/dump_elixism_ops.ex
+  s_8e9977ffd5237f::t_aba1d6c587f01a 1-29
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "fcce049a23554d7c65be2c59b1ac83fc39ae4b57",
+  "prompts": {},
+  "sessions": {
+    "s_8e9977ffd5237f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa7bf6bc-f474-4925-a494-a8ea455f13a6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
