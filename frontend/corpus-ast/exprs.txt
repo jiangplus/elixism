@@ -51,3 +51,6 @@ a[0] + b[1]
 foo()[0]
 Foo[x]
 config[key] || default
+"hex \x41\x42 end"
+"unicode \u00e9 \u{2764}"
+"tab\tgap and quote \" ok"

@@ -341,12 +341,11 @@ defmodule Tokenizer do
     qstr(rest, q, [{:interp, tokenize(inner)} | flush_lit(parts, lit)], [])
   end
 
-  defp qstr([?\\, ?# | t], q, parts, lit), do: qstr(t, q, parts, [?# | lit])
-  defp qstr([?\\, ?\\ | t], q, parts, lit), do: qstr(t, q, parts, [?\\ | lit])
-  defp qstr([?\\, ?n | t], q, parts, lit), do: qstr(t, q, parts, [?\n | lit])
-  defp qstr([?\\, ?t | t], q, parts, lit), do: qstr(t, q, parts, [?\t | lit])
-  defp qstr([?\\, ?r | t], q, parts, lit), do: qstr(t, q, parts, [?\r | lit])
-  defp qstr([?\\, c | t], q, parts, lit), do: qstr(t, q, parts, [c | lit])
+  defp qstr([?\\ | t], q, parts, lit) do
+    {cp, rest} = escape(t)
+    qstr(rest, q, parts, [cp | lit])
+  end
+
   defp qstr([c | t], q, parts, lit) when c == q, do: {finish_parts(parts, lit), t}
   defp qstr([c | t], q, parts, lit), do: qstr(t, q, parts, [c | lit])
 
@@ -355,6 +354,51 @@ defmodule Tokenizer do
   defp flush_lit(parts, lit), do: [List.to_string(Enum.reverse(lit)) | parts]
 
   defp finish_parts(parts, lit), do: Enum.reverse(flush_lit(parts, lit))
+
+  # ---- string escape sequences ----------------------------------------------
+  # Decode one escape (the chars are *after* the backslash) -> {codepoint, rest}.
+  # Shared by qstr (strings/charlists) and body_parts (heredocs).  Covers the
+  # control aliases (\n \t \r \s \e \a \b \f \v \d \0), hex \xHH / \x{…} and
+  # unicode \uHHHH / \u{…}; any other char (\\ \" \' \#) is itself.  NB: char
+  # literals (?\x) do *not* take hex — that is handled separately in scan/2.
+  #
+  # Codepoints are accumulated and later UTF-8-encoded by List.to_string, so \u
+  # forms are byte-exact and \xHH is exact for HH ≤ 0x7F.  (Raw high bytes
+  # \x80–\xFF — manual UTF-8 construction — would need binary-level building and
+  # remain the one escape edge not yet byte-identical.)
+  defp escape([?x, ?{ | t]), do: hex_brace(t, 0)
+  defp escape([?u, ?{ | t]), do: hex_brace(t, 0)
+  defp escape([?x | t]), do: take_hex(t, 2, 0, 0)
+  defp escape([?u | t]), do: take_hex(t, 4, 0, 0)
+  defp escape([?n | t]), do: {?\n, t}
+  defp escape([?t | t]), do: {?\t, t}
+  defp escape([?r | t]), do: {?\r, t}
+  defp escape([?s | t]), do: {?\s, t}
+  defp escape([?e | t]), do: {27, t}
+  defp escape([?a | t]), do: {7, t}
+  defp escape([?b | t]), do: {8, t}
+  defp escape([?f | t]), do: {12, t}
+  defp escape([?v | t]), do: {11, t}
+  defp escape([?d | t]), do: {127, t}
+  defp escape([?0 | t]), do: {0, t}
+  defp escape([c | t]), do: {c, t}
+
+  # read up to `max` hex digits (for \xHH / \uHHHH), accumulating the value.
+  # NB: the `when` guard must stay on the head's line — Elixism's own parser does
+  # not fold a newline between a def head and `when`.
+  defp take_hex([c | t], max, n, acc) when n < max and ((c >= ?0 and c <= ?9) or (c >= ?a and c <= ?f) or (c >= ?A and c <= ?F)) do
+    take_hex(t, max, n + 1, acc * 16 + hexv(c))
+  end
+
+  defp take_hex(rest, _max, _n, acc), do: {acc, rest}
+
+  # read hex digits until the closing brace (for \x{…} / \u{…})
+  defp hex_brace([?} | t], acc), do: {acc, t}
+  defp hex_brace([c | t], acc), do: hex_brace(t, acc * 16 + hexv(c))
+
+  defp hexv(c) when c >= ?0 and c <= ?9, do: c - ?0
+  defp hexv(c) when c >= ?a and c <= ?f, do: c - ?a + 10
+  defp hexv(c) when c >= ?A and c <= ?F, do: c - ?A + 10
 
   # ---- heredocs -------------------------------------------------------------
   # heredoc(chars, quote) where chars start just after the opening triple-quote.
@@ -410,12 +454,11 @@ defmodule Tokenizer do
     body_parts(rest, [{:interp, tokenize(inner)} | flush_lit(parts, lit)], [])
   end
 
-  defp body_parts([?\\, ?# | t], parts, lit), do: body_parts(t, parts, [?# | lit])
-  defp body_parts([?\\, ?\\ | t], parts, lit), do: body_parts(t, parts, [?\\ | lit])
-  defp body_parts([?\\, ?n | t], parts, lit), do: body_parts(t, parts, [?\n | lit])
-  defp body_parts([?\\, ?t | t], parts, lit), do: body_parts(t, parts, [?\t | lit])
-  defp body_parts([?\\, ?r | t], parts, lit), do: body_parts(t, parts, [?\r | lit])
-  defp body_parts([?\\, c | t], parts, lit), do: body_parts(t, parts, [c | lit])
+  defp body_parts([?\\ | t], parts, lit) do
+    {cp, rest} = escape(t)
+    body_parts(rest, parts, [cp | lit])
+  end
+
   defp body_parts([c | t], parts, lit), do: body_parts(t, parts, [c | lit])
 
   # ---- sigils ---------------------------------------------------------------

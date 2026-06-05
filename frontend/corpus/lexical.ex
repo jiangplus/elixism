@@ -25,6 +25,16 @@ defmodule Lexical do
 
   def chars, do: 'a charlist with #{:an} interpolation'
 
+  # string escapes: hex \xHH, braced \u{…}, unicode \uHHHH, and control aliases.
+  # All decode to ≤ 0x7F or to \u code points, so they UTF-8-encode byte-exactly
+  # and stay text-clean for the diff gate.  (NUL \0 and raw high bytes \x80–\xFF
+  # are decoded-tested separately — a NUL would make grep/diff see binary.)
+  def hex, do: "\x41\x42 \x7e"
+  def braced, do: "\u{1F4A9} and \u{2764}"
+  def unicode, do: "\u00e9 acute and \u2764 heart"
+  def ctrl, do: "esc\e bell\a tab\t gap del\d"
+  def quoted, do: "a \"quoted\" word and a backslash \\"
+
   def block do
     """
     line one

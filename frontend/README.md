@@ -63,7 +63,12 @@ int             [~c"1"]
     `identifier` (a call). This one whitespace bit is the only place Elixir's
     lexing is space-sensitive, and the tokenizer now carries it;
   - **strings & charlists** — `bin_string`/`list_string` with `#{…}`
-    interpolation (nested token structure) and `\#` escaping;
+    interpolation (nested token structure) and the full **escape set**: `\#`,
+    the control aliases (`\n \t \r \s \e \a \b \f \v \d \0`), hex `\xHH` / `\x{…}`
+    and unicode `\uHHHH` / `\u{…}` (decoded via a shared `escape/1`). Code points
+    are UTF-8-encoded, so `\u` forms and `\xHH` for HH ≤ 0x7F are byte-exact;
+    raw high bytes `\x80`–`\xFF` (manual UTF-8 construction) need binary-level
+    string building and are the one escape edge not yet byte-identical;
   - **heredocs** — `bin_heredoc`/`list_heredoc`, with the BEAM's
     indentation-dedent algorithm reproduced so the parts match exactly;
   - **sigils** — `~w`/`~r`/`~S`/… → `sigil` (`:sigil_<name>`), delimiter- and
@@ -117,12 +122,12 @@ int             [~c"1"]
   prefix ops (`@a[i]` is `(@a)[i]`; `-a[i]` is `-(a[i])`).
 
 **Next**
-1. **Remaining tokenizer surface:** the last edge cases (numeric base errors,
-   unicode escapes `\xHH`/`\uHHHH`, multi-letter/upper sigils' modifiers), then
-   **transpile `elixir_tokenizer.erl` → Elixir** (Erlang→Elixir, `erl2ex`-style +
-   fixups). The pieces a transpile needs are present: the `:erlang`/`:lists`
-   calls resolve; map `#elixir_tokenizer{}` → a struct; adjust 1-indexed tuples
-   and guard syntax.
+1. **Remaining tokenizer surface:** a few last edge cases (numeric base errors,
+   raw high-byte `\x80`–`\xFF` string escapes — which need binary-level string
+   building, sigil-modifier validation), then **transpile `elixir_tokenizer.erl`
+   → Elixir** (Erlang→Elixir, `erl2ex`-style + fixups). The pieces a transpile
+   needs are present: the `:erlang`/`:lists` calls resolve; map
+   `#elixir_tokenizer{}` → a struct; adjust 1-indexed tuples and guard syntax.
 2. **Companions (phase 0.5):** `elixir_interpolation.erl` (~288 lines, also
    charlist-based) for real strings/sigils; approximate error messages first.
 3. **Run the gate:** compile the transpiled tokenizer with Elixism, dump its
