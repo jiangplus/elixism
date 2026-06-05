@@ -322,6 +322,43 @@ def go, do: M.plus(3 * 3, 1)
 end
 N.go")))
 
+     ;; --- module attributes (@-attrs) ---
+     (deftest "attribute read"
+       (assert-equal 5000 (ev "defmodule M do
+@moduledoc \"doc\"
+@timeout 5000
+@impl true
+def t, do: @timeout
+end
+M.t")))
+     (deftest "attribute in expression"
+       (assert-equal 20 (ev "defmodule M do
+@limit 10
+def f, do: @limit * 2
+end
+M.f")))
+     (deftest "attribute list value"
+       (assert-equal "[:a, :b]" (ev* "defmodule M do
+@keys [:a, :b]
+def k, do: @keys
+end
+M.k")))
+
+     ;; --- use / __using__ (macro code injection) ---
+     (deftest "use injects a function"
+       (assert-equal 'world (ev "defmodule Greeter do
+defmacro __using__(_opts) do
+quote do
+def hello, do: :world
+end
+end
+end
+defmodule App do
+use Greeter
+def go, do: hello()
+end
+App.go")))
+
      ;; --- errors ---
      (deftest "match error raises"
        (assert-raises (lambda () (ev "{:ok, x} = {:error, 1}"))))

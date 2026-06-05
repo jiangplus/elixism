@@ -55,6 +55,10 @@
     ;; quote: the body's AST becomes data-building AST
     (('quoted body) (quote-to-ast body ctx))
 
+    ;; module attributes pass through (the value may contain quote/macros)
+    (('attr-set name value) `(attr-set ,name ,(expand-expr value ctx)))
+    (('attr-get _) e)
+
     (('istring parts) `(istring ,(map (lambda (p) (expand-expr p ctx)) parts)))
     (('block stmts) `(block ,(map (lambda (s) (expand-expr s ctx)) stmts)))
     (('list elts tail)
@@ -138,9 +142,14 @@
     (match body
       (('block forms)
        (for-each (lambda (f) (register-defmacro! mod f)) forms)
-       `(block ,(map (lambda (f) (expand-expr f mod)) forms)))
+       ;; `use`/macro expansions inject a (block …) of defs; flatten them up so
+       ;; the compiler sees the injected defs as ordinary module forms.
+       `(block ,(append-map (lambda (f) (flatten-form (expand-expr f mod))) forms)))
       (_ (register-defmacro! mod body)
-         (expand-expr body mod)))))
+         `(block ,(flatten-form (expand-expr body mod)))))))
+
+(define (flatten-form f)
+  (match f (('block fs) (append-map flatten-form fs)) (_ (list f))))
 
 (define (register-defmacro! mod form)
   (match form
@@ -158,9 +167,24 @@
 
 (define (expand-call name args ctx)
   (let ((arity (length args)) (run (*macro-runner*)))
-    (if (and run (macro-defined? ctx name arity))
-        (expand-expr (run ctx name arity args) ctx)
-        `(call ,name ,(map (lambda (a) (expand-expr a ctx)) args)))))
+    (cond
+     ;; `use Mod[, opts]` -> invoke Mod.__using__(opts) and splice the result
+     ;; (Elixir's code-injection model).  Mods with no user __using__ (e.g.
+     ;; GenServer, modeled natively) are ignored.
+     ((and run (eq? name 'use)) (expand-use args ctx))
+     ((and run (macro-defined? ctx name arity))
+      (expand-expr (run ctx name arity args) ctx))
+     (else `(call ,name ,(map (lambda (a) (expand-expr a ctx)) args))))))
+
+(define (expand-use args ctx)
+  (match args
+    ((('alias _) . rest)
+     (let ((mod (alias->sym (car args)))
+           (opts (if (null? rest) '(list () #f) (car rest))))
+       (if (macro-defined? mod '__using__ 1)
+           (expand-expr ((*macro-runner*) mod '__using__ 1 (list opts)) ctx)
+           '(atom nil))))
+    (_ '(atom nil))))
 
 (define (expand-remote modexpr fun args ctx)
   (let ((mod (and (pair? modexpr) (eq? (car modexpr) 'alias) (alias->sym modexpr)))
@@ -222,4 +246,17 @@
      `(list ,(map (lambda (kv)
                     `(tuple (,(atom-ast (car kv)) ,(quote-to-ast (cdr kv) ctx))))
                   pairs) #f))
+    ;; def/defp/defmacro -> {kind, [], [head, [do: body]]} (head is {name,[],sig};
+    ;; a guard wraps it in {:when, [], [head, guard]}).  Lets macros quote defs.
+    (('def kind name params guard body)
+     (let* ((sig (if (null? params)
+                     (tuple3-ast (atom-ast name) `(atom nil))
+                     (tuple3-ast (atom-ast name)
+                                 (list-ast (map (lambda (p) (quote-to-ast p ctx)) params)))))
+            (head (if guard
+                      (tuple3-ast (atom-ast 'when)
+                                  (list-ast (list sig (quote-to-ast guard ctx))))
+                      sig))
+            (do-kw `(list ((tuple (,(atom-ast 'do) ,(quote-to-ast body ctx)))) #f)))
+       (tuple3-ast (atom-ast kind) (list-ast (list head do-kw)))))
     (_ (error "quote: unsupported node" node))))

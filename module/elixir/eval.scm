@@ -113,6 +113,8 @@
           ((eq? name '__aliases__) `(alias ,args))
           ((eq? name (string->symbol "{}")) `(tuple ,(map term->ast args)))
           ((eq? name '__block__) `(block ,(map term->ast args)))
+          ;; def/defp/defmacro: {kind, _, [head, [do: body]]} -> the def node
+          ((memq name '(def defp defmacro defmacrop)) (term-def->ast name args))
           ;; a variable: third element is the context atom, not an arg list
           ((not (list? args)) `(var ,name))
           ((and (= (length args) 2) (member (symbol->string name) *binops*))
@@ -121,6 +123,35 @@
            `(unop ,(symbol->string name) ,(term->ast (car args))))
           (else `(call ,name ,(map term->ast args))))))
       (else (error "macro: result tuple of unexpected arity" n)))))
+
+;; {kind, _, [head, [do: body]]} -> (def kind name params guard body).
+;; head is {name, _, sig} where sig is nil (0-arg) or the arg-term list; a guard
+;; wraps the head in {:when, _, [head, guard]}.
+(define (term-def->ast kind args)
+  (let* ((head (car args))
+         (kw   (cadr args))
+         (body (kw-term-get kw 'do)))
+    (call-with-values (lambda () (parse-head-term head))
+      (lambda (name params guard)
+        `(def ,kind ,name ,params ,guard ,(term->ast body))))))
+
+(define (parse-head-term head)
+  (if (and (tuple? head) (= (tuple-size head) 3) (eq? (tuple-ref head 0) 'when))
+      (let ((inner (tuple-ref head 2)))         ; [sig, guard]
+        (call-with-values (lambda () (parse-sig-term (car inner)))
+          (lambda (name params _g) (values name params (term->ast (cadr inner))))))
+      (call-with-values (lambda () (parse-sig-term head))
+        (lambda (name params _g) (values name params #f)))))
+
+(define (parse-sig-term sig)
+  ;; {name, _, nil} -> 0-arg ; {name, _, args} -> args as patterns
+  (let ((name (tuple-ref sig 0)) (a (tuple-ref sig 2)))
+    (values name (if (list? a) (map term->ast a) '()) #f)))
+
+(define (kw-term-get kw key)
+  (cond ((null? kw) 'nil)
+        ((and (tuple? (car kw)) (eq? (tuple-ref (car kw) 0) key)) (tuple-ref (car kw) 1))
+        (else (kw-term-get (cdr kw) key))))
 
 ;; Invoked by the expander at each macro call site.
 (define (host-macro-runner mod name arity arg-asts)

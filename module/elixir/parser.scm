@@ -211,7 +211,19 @@
          (else `(unop ,op ,(parse-unary c))))))
      ((at-ident? c 'not)
       (advance! c) `(unop "not" ,(parse-unary c)))
+     ;; module attributes: `@name value` (define) / `@name` (read)
+     ((at-op? c "@") (advance! c) (parse-attr c))
      (else (parse-postfix c)))))
+
+;; @name value  -> (attr-set name value-ast)   [module-level definition]
+;; @name        -> (attr-get name)             [read; inlined at compile time]
+(define (parse-attr c)
+  (if (at? c 'ident)
+      (let ((name (token-value (advance! c))))
+        (if (value-start? c)
+            `(attr-set ,name ,(parse-expr c 0))
+            `(attr-get ,name)))
+      `(unop "@" ,(parse-unary c))))
 
 ;; & capture:  &1  &foo/1  &(expr)  &Mod.fun/2
 (define (parse-capture c)

@@ -114,6 +114,19 @@
     (('alias parts) (string->symbol (string-join (map symbol->string parts) ".")))
     (_ (error "compiler: module name must be an alias" node))))
 
+;; Module attributes: a compile-time name->value-AST table for the module being
+;; compiled.  `@name value` records the value; `@name` reads inline that value
+;; (Elixir's compile-time-constant semantics).  Doc/impl/spec attributes are
+;; recorded and simply never read.
+(define *attrs* (make-parameter #f))
+
+(define (collect-attrs forms)
+  (let ((tbl (make-hash-table)))
+    (for-each (lambda (f)
+                (match f (('attr-set name value) (hash-set! tbl name value)) (_ #t)))
+              forms)
+    tbl))
+
 (define (compile-module name body)
   (let* ((mod (alias->symbol name))
          (forms (match body (('block fs) fs) (_ (list body))))
@@ -121,11 +134,12 @@
          (defs (append-map expand-defaults
                            (filter (lambda (f) (eq? (car f) 'def)) forms)))
          (groups (group-defs defs)))
-    `(begin
-       (register-module! ',mod)
-       ,@(map (lambda (s) (compile-defstruct mod s)) structs)
-       ,@(map (lambda (g) (compile-function-group mod g)) groups)
-       ',mod)))
+    (parameterize ((*attrs* (collect-attrs forms)))
+      `(begin
+         (register-module! ',mod)
+         ,@(map (lambda (s) (compile-defstruct mod s)) structs)
+         ,@(map (lambda (g) (compile-function-group mod g)) groups)
+         ',mod))))
 
 (define (defstruct-form? f)
   (match f (('call 'defstruct (_)) #t) (_ #f)))
@@ -457,6 +471,15 @@
     (('defimpl name type body) (compile-defimpl name type body))
     (('istring parts)
      `(string-append ,@(map (lambda (p) `(ex->display ,(compile-expr p ctx))) parts)))
+    ;; @name -> the stored attribute value, inlined (or nil for doc/unknown).
+    (('attr-get name)
+     (let ((tbl (*attrs*)))
+       (if (and tbl (hash-ref tbl name #f))
+           (compile-expr (hash-ref tbl name #f) ctx)
+           ''nil)))
+    ;; @name value as an expression yields the value (also collected at module
+    ;; level by collect-attrs so later `@name` reads see it).
+    (('attr-set _ value) (compile-expr value ctx))
     (('block stmts) (compile-block stmts ctx))
     (('list elts tail) (compile-list elts tail ctx))
     (('tuple elts) `(make-tuple ,@(map (lambda (x) (compile-expr x ctx)) elts)))
