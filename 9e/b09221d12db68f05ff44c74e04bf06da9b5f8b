@@ -1,0 +1,39 @@
+frontend/transpiled/dump_elixism_numbers.ex
+  s_8e9977ffd5237f::t_7be5f923fe4303 1-12,16-25
+  s_8e9977ffd5237f::t_db0408f70c5485 13-15
+frontend/transpiled/dump_beam_numbers.exs
+  s_8e9977ffd5237f::t_c2dbacf9849dc4 1-10,16-17,19-21
+  s_8e9977ffd5237f::t_e7302daec483de 11-15,18
+frontend/upstream/elixir_tokenizer.hrl
+  s_8e9977ffd5237f::t_d4306eba658062 1-43
+frontend/upstream/TRANSPILE.md
+  s_8e9977ffd5237f::t_2f7db6ae8d6ce8 1-137
+frontend/upstream/elixir_tokenizer.erl
+  s_8e9977ffd5237f::t_e21ba440ca1f14 1-1965
+frontend/upstream/elixir.hrl
+  s_8e9977ffd5237f::t_d4306eba658062 1-81
+frontend/transpiled/corpus-numbers.txt
+  s_8e9977ffd5237f::t_fd0e47aac11463 1-23
+frontend/transpiled/check_numbers.sh
+  s_8e9977ffd5237f::t_e67063c1dffc9f 1-22
+frontend/README.md
+  s_8e9977ffd5237f::t_8ad929ce763ae7 124-151
+frontend/transpiled/tokenizer.ex
+  s_8e9977ffd5237f::t_1126297eeb5cc1 1-161
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "9eb09221d12db68f05ff44c74e04bf06da9b5f8b",
+  "prompts": {},
+  "sessions": {
+    "s_8e9977ffd5237f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa7bf6bc-f474-4925-a494-a8ea455f13a6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
