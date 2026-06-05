@@ -19,6 +19,17 @@ while IFS= read -r e; do
   fi
 done < "$HERE/corpus-ast/exprs.txt"
 
+# whole real modules: parse the entire file and diff its quoted AST
+for f in "$HERE"/../examples/*.ex; do
+  if "$HERE/run_ast_diff.sh" "$f" >/dev/null 2>&1; then
+    printf "  \033[32m✓\033[0m %s\n" "examples/$(basename "$f")"
+    pass=$((pass + 1))
+  else
+    printf "  \033[31m✗\033[0m %s\n" "examples/$(basename "$f")"
+    fail=$((fail + 1))
+  fi
+done
+
 echo "  ---------------------------------------------"
 echo "  $pass identical, $fail differ"
 [ "$fail" -eq 0 ]

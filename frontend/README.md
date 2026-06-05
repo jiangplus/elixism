@@ -84,7 +84,7 @@ int             [~c"1"]
   handles `('match a b)` (match both sides against the subject). Found by writing
   the tokenizer; the kind of pattern a transpiled frontend leans on.
 
-### Phase 1 — a parser emitting Elixir's quoted AST (in progress)
+### Phase 1 — a parser emitting Elixir's quoted AST
 
 - ✅ **A Pratt parser runs on Elixism and produces Elixir's real
   `{name, meta, args}` quoted AST**, validated by diffing against
@@ -92,17 +92,25 @@ int             [~c"1"]
   climbs precedence exactly per `elixir_parser.yrl`; `frontend/ast_canon.ex` is a
   shared canonical AST renderer (Lisp-prefix form, meta dropped) used by both the
   BEAM dumper (`dump_beam_ast.exs`) and the Elixism dumper (`dump_elixism_ast.ex`);
-  `frontend/run_ast_diff.sh <file>` diffs one expression, `frontend/check_ast.sh`
-  runs the whole corpus (`corpus-ast/exprs.txt`).
-- ✅ **44/44 expression snippets parse identically to the BEAM** — the full
-  operator table with correct precedence/associativity (incl. right-assoc `=`,
-  left-assoc `**`, `++`/`<>` right, the comparison/boolean ladder), unary
-  `+`/`-`/`!`/`^`/`not`/`@`, parentheses, lists (incl. cons `[a | b]`), tuples
-  (2 → literal, n → `{:{}}`), paren calls `f(...)`, remote calls `a.b`/`a.b(...)`,
-  aliases (`Foo.Bar` → `__aliases__`), and pipelines.
-- Not yet: no-paren "command" calls (`foo bar, baz`), keyword lists, maps,
-  do/end blocks, `&` captures, string interpolation in the AST, and
-  multi-statement `__block__`s — the next parser increments.
+  `frontend/run_ast_diff.sh <file>` diffs one file, `frontend/check_ast.sh` runs
+  the whole corpus (`corpus-ast/exprs.txt` + every `examples/*.ex`).
+- ✅ **All 11 `examples/*.ex` parse byte-identically to the BEAM** — *whole real
+  modules*: GenServers, supervisors, protocols, structs, comprehensions,
+  binaries/bitstrings, monitors, pin. Plus **44 expression snippets**. The gate
+  reports *55 identical, 0 differ*.
+- Coverage: the full operator table with correct precedence/associativity (incl.
+  right-assoc `=`, left-assoc `**`, `++`/`<>`/`..` right, `<-`, the comp/boolean
+  ladder), unary `+`/`-`/`!`/`^`/`not`/`@`, **no-paren command calls** (`foo bar`,
+  `IO.puts "x"`, `def f, do: …`), **`do/end` blocks** with the correct binding
+  rule (a block binds to the rightmost call — `x = receive do … end`) and **`->`
+  clause lists** (`case`/`cond`/`fn`/`receive`), **multi-statement `__block__`s**,
+  **keyword lists** (inline + trailing call args), **maps** incl. update
+  (`%{m | k: v}`), **structs** `%Mod{…}`, **binaries** `<<x::8, …>>`, **`&`
+  captures**, **string interpolation** (`{:<<>>}` with `Kernel.to_string`), lists
+  (incl. cons), tuples, paren/remote calls, and aliases.
+- Known gap: `a[b]` access syntax — it is whitespace-sensitive (`a [b]` is a
+  call, `a[b]` is access) and the tokenizer drops that whitespace, so `[`/`{`/`<<`
+  after an identifier are read as command args.
 
 **Next**
 1. **Remaining tokenizer surface:** the last edge cases (numeric base errors,
