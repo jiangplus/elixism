@@ -1,0 +1,37 @@
+frontend/tokenizer.ex
+  s_8e9977ffd5237f::t_d744a81a930746 63-73
+  s_8e9977ffd5237f::t_a2c8c71b16e6e8 75,79-90
+  s_8e9977ffd5237f::t_b2f07d0093767a 350-411
+  s_8e9977ffd5237f::t_f13ee79646f9fb 412-435
+  s_8e9977ffd5237f::t_ff3432b606488b 290-291,293,297-299,306-322
+  s_8e9977ffd5237f::t_55e72b3013577e 324-330,332,335-342
+  s_8e9977ffd5237f::t_50a197372e294c 237-240,248,253,258
+frontend/dump_beam_tokens.exs
+  s_8e9977ffd5237f::t_dacd49619e06d8 46
+  s_8e9977ffd5237f::t_ca732fd812071b 47-48
+frontend/corpus/lexical.ex
+  s_8e9977ffd5237f::t_de6a4338a921bc 1-35
+frontend/check_all.sh
+  s_8e9977ffd5237f::t_a69a97173893dc 1-25
+frontend/dump_elixism_tokens.ex
+  s_8e9977ffd5237f::t_37d44b689a65df 15-16
+  s_8e9977ffd5237f::t_e086db1c9978d2 14
+frontend/README.md
+  s_8e9977ffd5237f::t_c8caa141f9e412 52-81,88-89
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "57acb03131a70cf31542e53facf817aafd254834",
+  "prompts": {},
+  "sessions": {
+    "s_8e9977ffd5237f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa7bf6bc-f474-4925-a494-a8ea455f13a6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
