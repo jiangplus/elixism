@@ -144,10 +144,23 @@ tokenizer emits tokens with location; the canonical dump drops it).
   own `:elixir_tokenizer` over `corpus-numbers.txt` → *number tokens identical
   (23 literals)*. (`list_to_integer/2` is a base fold — the host has no base-N
   parse; the `try/catch` float cast becomes an up-front digit guard.)
-- **Next stages:** (2) operator/delimiter/eol clauses → gate on a
-  numbers+operators corpus; (3) identifiers/atoms/keywords + `handle_*` dispatch
-  + terminator tracking; (4) strings/sigils/heredocs (needs the
-  `elixir_interpolation.erl` companion, ~288 lines); (5) error/warning meta;
-  (6) swap in the transpiled module, full corpus + self-host.
+- ✅ **Stage 2 — the `tokenize/5` loop: operators, delimiters, eol** — the same
+  module gains the main loop: all 1/2/3-char operator clauses (via faithful
+  `handle_op`/`handle_unary_op`, with the macros inlined into guards), the
+  container/punctuation tokens (`( ) [ ] { } << >> %{} , ;`), `&` capture
+  (`capture_int`/`capture_op`/`identifier`), spaces (`strip_horizontal_space`),
+  and the newline EOL machinery (`eol`/`tokenize_eol`, operator folding via
+  `add_token_with_eol`, comma/eol absorption, `\`-continuation). Two gates diff
+  kind+value against Elixir's own `:elixir_tokenizer`: `check_ops.sh`
+  (single-line operators/delimiters/numbers — *51 lines identical*) and
+  `check_multiline.sh` (eol/folding/absorption across lines — *41 tokens
+  identical*, e.g. `*` at line start folds the eol, `+` does not). Terminator
+  *validation*, the invalid-char number branch, and warnings are stubbed/deferred
+  (they don't change the happy-path stream).
+- **Next stages:** (3) identifiers/atoms/keywords + `handle_dot` + the
+  space-sensitive `op_identifier` clause + real terminator tracking; (4)
+  strings/sigils/heredocs (needs the `elixir_interpolation.erl` companion, ~288
+  lines); (5) error/warning meta; (6) swap in the transpiled module, full corpus
+  + self-host.
 
 Then Phases 1–4 (quoted AST, grammar conformance, macros, self-host the parser).
