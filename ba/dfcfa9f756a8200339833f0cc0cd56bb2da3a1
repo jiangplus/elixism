@@ -1,0 +1,38 @@
+frontend/dump_beam_ast.exs
+  s_8e9977ffd5237f::t_3096f6c901a0a6 1-13
+frontend/run_ast_diff.sh
+  s_8e9977ffd5237f::t_88258502c3e868 1-23
+frontend/check_ast.sh
+  s_8e9977ffd5237f::t_e26826197e5882 1-24
+frontend/tokenizer.ex
+  s_8e9977ffd5237f::t_dcdeb3d55edb39 153
+frontend/dump_elixism_ast.ex
+  s_8e9977ffd5237f::t_efdc6c8d971d4b 1-18
+frontend/parser.ex
+  s_8e9977ffd5237f::t_167ed723f527e5 160
+  s_8e9977ffd5237f::t_e1755ba49446c6 44
+  s_8e9977ffd5237f::t_851b5d11cfea82 1-43,45-141,143-159,161-171
+  s_8e9977ffd5237f::t_7225fa38d906df 142
+frontend/README.md
+  s_8e9977ffd5237f::t_177953bbf79ebb 87-106
+frontend/corpus-ast/exprs.txt
+  s_8e9977ffd5237f::t_0df008b0087bb7 1-44
+frontend/ast_canon.ex
+  s_8e9977ffd5237f::t_2eb681fbd3a8ff 1-34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "badfcfa9f756a8200339833f0cc0cd56bb2da3a1",
+  "prompts": {},
+  "sessions": {
+    "s_8e9977ffd5237f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa7bf6bc-f474-4925-a494-a8ea455f13a6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
