@@ -267,15 +267,17 @@ yecc"; it's transpile **three Erlang pieces**:
 
 ### Risks (all real, all surmountable)
 
-1. **Binary-matching performance on Hoot — the showstopper to design around.**
-   Elixir's tokenizer walks the source as a **binary**, relying on BEAM *match
-   contexts* where `<<c, rest::binary>>` shares storage in O(1). Elixism models
-   binaries as codepoint strings, and **Hoot `string-ref` is O(N)** — exactly the
-   O(N²) trap we hit (and beat with scan primitives) in the JSON work. A naively
-   transpiled tokenizer would be catastrophically slow. Mitigation: give Elixism a
-   real **position-based binary cursor / bytevector with O(1) advance** (the
-   generalization of `ex-skip-ws`/`ex-scan-*`) so the transpiled `<<c, rest>>`
-   loop compiles to cheap index advance, not substring copies.
+1. ~~**Binary-matching performance on Hoot.**~~ **Withdrawn after reading the
+   source.** Elixir's tokenizer does *not* walk a binary — it consumes a
+   **charlist** (`elixir_tokenizer.erl` has **70 `tokenize([H | T], …)` clauses
+   and 0 `tokenize(<<…>>, …)` clauses**; e.g. `tokenize([$0, $x, H | T], …)`).
+   That is exactly Elixism's strength: O(1) `cdr` traversal of a charlist, the
+   same substrate the JSON parser uses. So **no new binary cursor is needed for
+   the tokenizer** — the existing charlist + scan-primitive machinery is the
+   cursor. (A real binary cursor is still worth building later for the value model
+   and `:binary`/`<<>>` matching generally, but it is *not* a phase-0 blocker.)
+   This correction is itself the methodology working: a plausible risk, checked
+   against the source, dissolved.
 2. **Erlang stdlib surface.** The frontend calls `:lists`, `:binary`, `:maps`,
    `:erlang`, `:unicode`, plus uses **records** (`#elixir_tokenizer{}`) and
    binary comprehensions. None exist on Elixism. You must implement the *subset*
@@ -312,5 +314,80 @@ is the better *next step*. They compose:
   the BEAM.
 
 So: not "option 1 *or* option 5" — **option 1 first, engineered so option 5 is the
-endgame.** The two prerequisites (binary cursor, Erlang-stdlib subset) are the
-work to start on regardless.
+endgame.** The prerequisite worth starting on regardless is the **Erlang-stdlib
+subset** the frontend needs (the binary cursor turned out *not* to be a frontend
+blocker — see Part D).
+
+---
+
+## Part D — Phase 0, scoped from the tokenizer source
+
+*Goal of phase 0: make Elixism able to run a transpiled `elixir_tokenizer.erl`.
+Everything below is read off the actual source, not guessed.*
+
+### Finding that reshapes the plan
+
+The tokenizer is **charlist-based** (70 `[H|T]` clauses, 0 binary clauses). It is
+fed a list of codepoints and walks it with cons-matching. **Elixism already runs
+this pattern in O(1)** (the JSON parser does the same). Consequence: phase 0 is
+**not** "build a binary cursor" — it's "provide the Erlang-stdlib/BIF surface the
+tokenizer calls, plus a record→struct mapping." That surface is small.
+
+### The Erlang surface the tokenizer actually uses (and Elixism's status)
+
+Counted from `elixir_tokenizer.erl`:
+
+| Erlang call (uses) | Maps to / needs | Elixism status |
+|--------------------|-----------------|----------------|
+| `lists:reverse` (14) | `Enum.reverse` | ✅ have |
+| `lists:member` (2), `lists:keyfind` (2) | `Enum.member?`, `List.keyfind` | ✅ have |
+| `lists:foldl` (1), `lists:last` (1), `lists:delete` (1) | `List.foldl`, `List.last`, `List.delete` | ✅ have |
+| `lists:nthtail` (2), `lists:takewhile`/`mapfoldl`/`droplast` (1 each) | small `:lists` helpers | ⚠️ **add** |
+| `hd` (15), `length` (6), `is_list`/`is_atom`/`is_integer` | `hd`, `length`, guards | ✅ have |
+| `element/2` (2), `setelement/3` (1) | `elem`, **`put_elem`** — *1-indexed → 0-indexed* | ⚠️ `put_elem` **add** + transpiler index shift |
+| **`list_to_atom` (38)** | charlist → atom | ⚠️ **add** (`String.to_atom(List.to_string …)` or a primitive) |
+| `atom_to_list` (7) | atom → charlist | ⚠️ **add** |
+| `list_to_integer` (4) | charlist → integer | ⚠️ **add** (have `String.to_integer`) |
+| `io_lib:format` (23) | **error messages only** | ⏸️ minimal/stub (see deferred) |
+| `unicode:characters_to_nfkc_list` (1) | non-ASCII identifier normalization | ⏸️ defer (ASCII path first) |
+| `elixir_interpolation:*` (6), `elixir_utils:characters_*`, `elixir_errors:prefix`, `elixir_config:*` | companion frontend modules | ⏸️ phase 0.5 (also charlist-based) |
+
+So **most already exist**; the genuine gaps are ~6 small functions plus a thin
+Erlang-name shim.
+
+### Phase-0 deliverables
+
+1. **Erlang-name shim** — register `:lists` and `:erlang` "modules" whose
+   functions delegate to the Elixism equivalents, so transpiled `:lists.reverse/1`
+   and bare BIFs (`hd`, `element`, `list_to_atom`, …) resolve. (Decision for the
+   transpiler: map common ones to Elixir idioms, route the rest through the shim.)
+2. **The ~6 missing primitives**: `put_elem`, `List.to_atom`/charlist→atom,
+   `atom_to_charlist`, charlist→integer, `lists:nthtail`/`takewhile`/`mapfoldl`/
+   `droplast`. All trivial; all charlist-friendly.
+3. **Record → struct + transpiler rules.** `#elixir_tokenizer{}` (fields:
+   `terminators`, `cursor_completion`, `existing_atoms_only`, `static_atoms_
+   encoder`, `preserve_comments`, `unescape`, `column`, `identifier_tokenizer`, …)
+   → an Elixir struct with `%{tok | field: v}` updates. Transpiler must also
+   handle: **Erlang 1-indexed tuples → 0-indexed**, guard syntax, and `++`/charlist
+   literals.
+4. **Validation harness** — the gate that makes this safe: tokenize a corpus
+   (Elixism's own `examples/*.ex`, the parser source) on Elixism and **diff the
+   token stream against `:elixir_tokenizer.tokenize/4` on the BEAM**. Identical
+   tokens = the transpiled tokenizer is faithful. (Same discipline as the JSON
+   node-count cross-check.)
+
+### Explicitly deferred (so phase 0 stays small)
+
+- **Interpolation** (`elixir_interpolation.erl`, 288 lines) — needed for real
+  strings/sigils, but a clean phase-0.5; also charlist-based.
+- **Unicode NFKC** for non-ASCII identifiers — ASCII identifiers first.
+- **Error-message fidelity** (`io_lib:format`, `elixir_errors`) — emit
+  approximate errors initially; exact text later.
+- **The parser, macros, the binary cursor** — later phases (Parts B/C).
+
+### Definition of done for phase 0
+
+A transpiled `elixir_tokenizer.erl` compiles under Elixism and, run on the host,
+produces a token stream **byte-identical to the BEAM tokenizer** for an ASCII,
+interpolation-free corpus — proving the Erlang-stdlib subset and record mapping
+are correct, with no new binary cursor required.
