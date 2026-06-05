@@ -1,0 +1,36 @@
+frontend/parser.ex
+  s_8e9977ffd5237f::t_05a916199bbe1b 226-230
+  s_8e9977ffd5237f::t_c907eb054c0807 80,91-92
+  s_8e9977ffd5237f::t_85694717abb863 392-395
+  s_8e9977ffd5237f::t_5fa74b034d3429 75-79,82-90
+  s_8e9977ffd5237f::t_d4eee6428148b3 142-146
+  s_8e9977ffd5237f::t_5a167a39bf5dda 386
+  s_8e9977ffd5237f::t_cd793ffff47d5c 204-205
+  s_8e9977ffd5237f::t_ac1264c8c961cd 195-199
+frontend/tokenizer.ex
+  s_8e9977ffd5237f::t_07d4f9bbea5c43 200-204,210-211
+frontend/corpus-ast/exprs.txt
+  s_8e9977ffd5237f::t_4461fd5a28cb8b 45-53
+examples/access.ex
+  s_8e9977ffd5237f::t_b3c01f339929c3 1-24
+frontend/README.md
+  s_8e9977ffd5237f::t_78b1b7953bde95 61-64
+  s_8e9977ffd5237f::t_43286329c39971 101,103-104
+  s_8e9977ffd5237f::t_83c20e9db0e6e7 114-117
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "4c151f81dc35841fe2c501f895f7af633a565826",
+  "prompts": {},
+  "sessions": {
+    "s_8e9977ffd5237f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa7bf6bc-f474-4925-a494-a8ea455f13a6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
