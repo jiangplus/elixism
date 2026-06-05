@@ -638,6 +638,9 @@
       ("||" `(let ((lv ,lc)) (if (ex-truthy? lv) lv ,rc)))
       ("|>" (compile-pipe l r ctx))
       ("**" `(expt ,lc ,rc))
+      ;; `::` only appears in typespecs (never compiled) and binary specs
+      ;; (handled in parse-binary); as a fallback, yield the value side.
+      ("::" lc)
       (_ (error "compiler: unknown binop" op)))))
 
 ;; a |> f(b, c)  ==>  f(a, b, c)

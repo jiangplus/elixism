@@ -132,6 +132,7 @@
 (define (binop-info op)
   (assoc op
          '(("="   . (100 . right))
+           ("::"  . (60 . right))   ; type op — kept below binary-spec prec (111)
            ("\\\\" . (95 . left))   ; default argument marker
            ("|"   . (110 . right))
            ("||"  . (120 . left)) ("|||" . (120 . left))
@@ -217,13 +218,39 @@
 
 ;; @name value  -> (attr-set name value-ast)   [module-level definition]
 ;; @name        -> (attr-get name)             [read; inlined at compile time]
+;; Typespec attributes (@type/@spec/…) are annotations — their value is type
+;; syntax (`t :: %Mod{}`, `String.t`, unions), irrelevant at runtime, so we skip
+;; it rather than parse the whole type grammar.
+(define *typespec-attrs* '(type typep opaque spec callback macrocallback))
+
 (define (parse-attr c)
   (if (at? c 'ident)
       (let ((name (token-value (advance! c))))
-        (if (value-start? c)
-            `(attr-set ,name ,(parse-expr c 0))
-            `(attr-get ,name)))
+        (cond
+         ((memq name *typespec-attrs*) (skip-typespec c) `(attr-set ,name (atom nil)))
+         ((value-start? c) `(attr-set ,name ,(parse-expr c 0)))
+         (else `(attr-get ,name))))
       `(unop "@" ,(parse-unary c))))
+
+;; Consume a (possibly multi-line) type expression: balance brackets, and keep
+;; going across a newline when the line ends on an operator / comma (a spec
+;; continuation like `t ::` newline, or `a |` newline `b`).
+(define (skip-typespec c)
+  (let loop ((depth 0) (cont #t))
+    (let ((t (peek c)))
+      (cond
+       ((eq? (token-type t) 'eof) #t)
+       ((eq? (token-type t) 'newline)
+        (if (or (> depth 0) cont) (begin (advance! c) (loop depth #t)) #t))
+       (else
+        (advance! c)
+        (let ((d2 (cond
+                   ((memq (token-type t) '(lparen lbracket lbrace)) (+ depth 1))
+                   ((and (eq? (token-type t) 'op) (string=? (token-value t) "<<")) (+ depth 1))
+                   ((memq (token-type t) '(rparen rbracket rbrace)) (max 0 (- depth 1)))
+                   ((and (eq? (token-type t) 'op) (string=? (token-value t) ">>")) (max 0 (- depth 1)))
+                   (else depth))))
+          (loop d2 (or (eq? (token-type t) 'op) (eq? (token-type t) 'comma)))))))))
 
 ;; & capture:  &1  &foo/1  &(expr)  &Mod.fun/2
 (define (parse-capture c)
