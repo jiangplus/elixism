@@ -50,7 +50,10 @@
   (match e
     ;; literals & leaves: unchanged
     (('integer _) e) (('float _) e) (('atom _) e) (('string _) e)
-    (('charlist _) e) (('var _) e) (('capture-arg _) e) (('alias _) e)
+    (('charlist _) e) (('var _) e) (('capture-arg _) e)
+
+    ;; an alias reference: expand a leading aliased segment to its full path
+    (('alias parts) (resolve-alias parts))
 
     ;; quote: the body's AST becomes data-building AST
     (('quoted body) (quote-to-ast body ctx))
@@ -142,11 +145,50 @@
     (match body
       (('block forms)
        (for-each (lambda (f) (register-defmacro! mod f)) forms)
-       ;; `use`/macro expansions inject a (block …) of defs; flatten them up so
-       ;; the compiler sees the injected defs as ordinary module forms.
-       `(block ,(append-map (lambda (f) (flatten-form (expand-expr f mod))) forms)))
+       (let ((atbl (make-hash-table)))
+         (for-each (lambda (f) (collect-alias-form f atbl)) forms)
+         (parameterize ((*aliases* atbl))
+           ;; drop alias/import/require directives; `use`/macro expansions inject
+           ;; a (block …) of defs, flattened up to ordinary module forms.
+           `(block ,(append-map
+                     (lambda (f)
+                       (if (directive-form? f) '()
+                           (flatten-form (expand-expr f mod))))
+                     forms)))))
       (_ (register-defmacro! mod body)
          `(block ,(flatten-form (expand-expr body mod)))))))
+
+;; ---- alias resolution -------------------------------------------------------
+;; Module-scoped short-name -> full-path table; references whose first segment is
+;; aliased expand to the full path (alias Foo.Bar  =>  Bar resolves to Foo.Bar).
+(define *aliases* (make-parameter #f))
+
+(define (resolve-alias parts)
+  (let ((tbl (*aliases*)))
+    (if (and tbl (pair? parts) (hash-ref tbl (car parts) #f))
+        `(alias ,(append (hash-ref tbl (car parts) #f) (cdr parts)))
+        `(alias ,parts))))
+
+(define (directive-form? f)
+  (match f
+    (('call (and d (or 'alias 'import 'require)) . _) (and d #t))
+    (_ #f)))
+
+(define (collect-alias-form f tbl)
+  (match f
+    ;; alias Foo.Bar
+    (('call 'alias (('alias parts))) (hash-set! tbl (last parts) parts))
+    ;; alias Foo.Bar, as: Baz
+    (('call 'alias (('alias parts) ('kwlist kw)))
+     (match (assq 'as kw)
+       (('as . ('alias (a))) (hash-set! tbl a parts))
+       (_ (hash-set! tbl (last parts) parts))))
+    ;; alias Foo.{Bar, Baz}
+    (('call 'alias (('alias-group ('alias base) groups)))
+     (for-each (lambda (g)
+                 (match g (('alias gp) (hash-set! tbl (last gp) (append base gp))) (_ #t)))
+               groups))
+    (_ #t)))
 
 (define (flatten-form f)
   (match f (('block fs) (append-map flatten-form fs)) (_ (list f))))

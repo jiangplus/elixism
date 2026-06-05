@@ -295,6 +295,15 @@
                 (loop `(remote ,e ,fun ())))))
          ((at? c 'lparen)            ; anonymous call  f.(args)
           (loop `(dotcall ,e ,(parse-paren-args c))))
+         ((at? c 'lbrace)            ; alias group:  Foo.{Bar, Baz}
+          (advance! c) (skip-newlines! c)
+          (let gloop ((parts '()))
+            (let ((a (parse-alias c)))
+              (skip-newlines! c)
+              (cond
+               ((at? c 'comma) (advance! c) (skip-newlines! c) (gloop (cons a parts)))
+               (else (expect! c 'rbrace)
+                     (loop `(alias-group ,e ,(reverse (cons a parts)))))))))
          (else (error "elixir parser: bad dot expr at line" (token-line t)))))
        ;; call with parens directly after a bare name handled in primary
        (else e)))))
