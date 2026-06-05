@@ -1,0 +1,24 @@
+module/elixir/eval.scm
+  s_8e9977ffd5237f::t_098d9079d63bfb 48-49,52-159
+  s_8e9977ffd5237f::t_3ef6a7c5908a9b 9-10
+  s_8e9977ffd5237f::t_74ec69e4b898c6 181
+  s_8e9977ffd5237f::t_367b24fda294dd 173
+test/test-integration.scm
+  s_8e9977ffd5237f::t_ea85a8947adf7b 282-324
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "0466fb1b1fff9806ae786966f4d3dd9e53c3b8c9",
+  "prompts": {},
+  "sessions": {
+    "s_8e9977ffd5237f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa7bf6bc-f474-4925-a494-a8ea455f13a6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
