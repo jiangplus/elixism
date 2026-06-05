@@ -1,0 +1,75 @@
+frontend/dump_beam_tokens.exs
+  s_8e9977ffd5237f::t_a53403932b54fd 1-10,32-40,53-58
+  s_8e9977ffd5237f::t_22289900fb3bef 11-31
+  s_8e9977ffd5237f::t_c45ee918b27cdd 44,46-49
+  s_8e9977ffd5237f::t_aaf3a21fed4a0e 45
+  s_8e9977ffd5237f::t_5b2a181bd94dc0 41-43,50-52
+frontend/README.md
+  s_8e9977ffd5237f::t_6e92d8326a53be 49-50,52
+  s_8e9977ffd5237f::t_1cca1c4cdad6a2 51,74-78
+  s_8e9977ffd5237f::t_d959d17187b653 53-73,80-85
+  s_8e9977ffd5237f::t_7aa4efd0c05e33 1-48,79,86-92
+frontend/run_diff.sh
+  s_8e9977ffd5237f::t_4dce4b1c7deb0f 1-21
+wasm-node/bundle.scm
+  s_8e9977ffd5237f::t_a08616a6a927e6 90-92
+module/elixir/compiler.scm
+  s_8e9977ffd5237f::t_547781a8844a2f 345-350
+frontend/tokenizer.ex
+  s_8e9977ffd5237f::t_ba567d99a2c422 117-118
+  s_8e9977ffd5237f::t_faf667fcabb502 123
+  s_8e9977ffd5237f::t_e5075383b683e1 164-176
+  s_8e9977ffd5237f::t_053acdd0748fb1 255-260
+  s_8e9977ffd5237f::t_49d49541cae1af 38-50,52-54
+  s_8e9977ffd5237f::t_1ba4fc383bdb35 51
+  s_8e9977ffd5237f::t_fee636ba847dfe 235-254
+  s_8e9977ffd5237f::t_3fff06e82f84c0 93
+  s_8e9977ffd5237f::t_4fe2c2fc2f61f0 55,57-60,63
+  s_8e9977ffd5237f::t_038b0c84903e98 61-62,64-65
+  s_8e9977ffd5237f::t_2a42ae975bc3fc 1-23,28-31,34-37,56,66-67,84-92,94-95,126-127,133-142,144-145,154,162,188-189,200-211,307-310,312,318-322
+  s_8e9977ffd5237f::t_e06347b7827940 212-227,232-234
+  s_8e9977ffd5237f::t_4036b64f1d1739 159-160,177-187
+  s_8e9977ffd5237f::t_b196b972c71f48 24-27
+  s_8e9977ffd5237f::t_55ac92cd91d09b 96-111,124-125,128-132
+  s_8e9977ffd5237f::t_42ba970d28f804 32-33
+  s_8e9977ffd5237f::t_1944e3882acc04 112-115,120-122
+  s_8e9977ffd5237f::t_10d88eb564cf69 68-83
+  s_8e9977ffd5237f::t_b147aa3f9dfc1b 116,119
+  s_8e9977ffd5237f::t_024706be444443 194-198
+  s_8e9977ffd5237f::t_00831fd9704347 199
+  s_8e9977ffd5237f::t_21d4806282df32 228-231
+  s_8e9977ffd5237f::t_83f425326c4acc 261-274,304
+  s_8e9977ffd5237f::t_15675db6701d9d 275-284,286-303
+  s_8e9977ffd5237f::t_bae23637a0fc1a 190-193
+  s_8e9977ffd5237f::t_a7fb323e11fea3 143,146-153,155-158,161,163
+  s_8e9977ffd5237f::t_7e0ceac39685ad 305-306,311,313-317
+  s_8e9977ffd5237f::t_0e6700bf063944 285
+module/elixir/kernel.scm
+  s_8e9977ffd5237f::t_3989e6e3aaad69 145-197
+  s_8e9977ffd5237f::t_fe4b0468270bbe 368-369
+  s_8e9977ffd5237f::t_a39b08993fe18e 32-33
+frontend/dump_elixism_tokens.ex
+  s_8e9977ffd5237f::t_29a3eb330591bd 16-18
+  s_8e9977ffd5237f::t_a1e8bad1e52bcd 1-7,11-12,19-21,36
+  s_8e9977ffd5237f::t_0054c5184ef552 8-10
+  s_8e9977ffd5237f::t_032d00c30f6996 13,22-35
+  s_8e9977ffd5237f::t_10edd6936b78e0 14-15
+test/test-integration.scm
+  s_8e9977ffd5237f::t_1ff30102cdb0ed 191-199
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "466e69d051b504ef67fcf44a9965815df4a40f41",
+  "prompts": {},
+  "sessions": {
+    "s_8e9977ffd5237f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa7bf6bc-f474-4925-a494-a8ea455f13a6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
