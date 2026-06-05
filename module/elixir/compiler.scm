@@ -546,7 +546,8 @@
     (('receive clauses after) (compile-receive clauses after ctx))
     (('for quals options body) (compile-for quals options body ctx))
     (('with clauses body else-cls) (compile-with clauses body else-cls ctx))
-    (('try body rescue-cls after-body) (compile-try body rescue-cls after-body ctx))
+    (('try body rescue-cls catch-cls else-cls after-body)
+     (compile-try body rescue-cls catch-cls else-cls after-body ctx))
     (_ (error "compiler: cannot compile expression" e))))
 
 ;;; for-comprehension: nested loops accumulating a reversed list, then
@@ -581,17 +582,41 @@
 
 ;;; try/rescue/after: body runs as a thunk under ex-try; a raised Elixir
 ;;; payload is matched against the rescue clauses (no match re-raises); the
-;;; after body, if present, runs unconditionally.
-(define (compile-try body rescue-cls after-body ctx)
-  (let ((payload (gensym "ex")))
-    `(ex-try
-      (lambda () ,(compile-expr body ctx))
-      ,(if (null? rescue-cls)
-           #f
-           `(lambda (,payload)
-              ,(compile-match-clauses (list payload) rescue-cls ctx
-                                      `(ex-raise ,payload))))
-      ,(if after-body `(lambda () ,(compile-expr after-body ctx)) #f))))
+;;; after body, if present, runs unconditionally.  `catch` clauses match a
+;;; thrown value (throw raises a {:throw, x} payload); `rescue` clauses match an
+;;; exception payload; `else` clauses match the body's success value (their own
+;;; exceptions escape the catch). The body result is tagged %try-ok / handler
+;;; result %try-err so they can be told apart after the catch.
+(define (compile-try body rescue-cls catch-cls else-cls after-body ctx)
+  (let ((p (gensym "p")) (tv (gensym "tv")) (r (gensym "r"))
+        (v (gensym "v")) (hp (gensym "hp")))
+    (let* ((handler
+            (if (or (pair? rescue-cls) (pair? catch-cls))
+                `(lambda (,p)
+                   (if (and (tuple? ,p) (= (tuple-size ,p) 2) (eq? (tuple-ref ,p 0) 'throw))
+                       ,(if (pair? catch-cls)
+                            `(let ((,tv (tuple-ref ,p 1)))
+                               ,(compile-match-clauses (list tv) catch-cls ctx `(ex-raise ,p)))
+                            `(ex-raise ,p))
+                       ,(if (pair? rescue-cls)
+                            (compile-match-clauses (list p) rescue-cls ctx `(ex-raise ,p))
+                            `(ex-raise ,p))))
+                #f))
+           (core
+            `(let ((,hp ,handler))
+               (let ((,r (ex-try
+                          (lambda () (make-tuple '%try-ok ,(compile-expr body ctx)))
+                          (if ,hp (lambda (,p) (make-tuple '%try-err (,hp ,p))) #f)
+                          #f)))
+                 (if (eq? (tuple-ref ,r 0) '%try-ok)
+                     (let ((,v (tuple-ref ,r 1)))
+                       ,(if (pair? else-cls)
+                            (compile-match-clauses (list v) else-cls ctx '(ex-case-error))
+                            v))
+                     (tuple-ref ,r 1))))))
+      (if after-body
+          `(ex-try (lambda () ,core) #f (lambda () ,(compile-expr after-body ctx)))
+          core))))
 
 ;;; with: thread successive matches; the first failed `<-` short-circuits.
 ;;; With an `else`, the failing value is matched against the else clauses;

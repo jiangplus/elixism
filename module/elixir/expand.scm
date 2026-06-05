@@ -92,9 +92,11 @@
      `(with ,(map (lambda (c) (expand-with-clause c ctx)) cls)
             ,(expand-expr body ctx)
             ,(map (lambda (c) (expand-clause c ctx)) els)))
-    (('try body resc after)
+    (('try body resc catch-cls else-cls after)
      `(try ,(expand-expr body ctx)
            ,(map (lambda (c) (expand-clause c ctx)) resc)
+           ,(map (lambda (c) (expand-clause c ctx)) catch-cls)
+           ,(map (lambda (c) (expand-clause c ctx)) else-cls)
            ,(and after (expand-expr after ctx))))
 
     ;; calls: expand a macro invocation, else recurse into the args

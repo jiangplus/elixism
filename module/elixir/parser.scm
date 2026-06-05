@@ -847,20 +847,25 @@
 ;; try do body rescue pat -> handler ... after cleanup end
 ;; AST: (try body rescue-clauses after-body|#f)
 (define (try-section-end? c)
-  (or (at-ident? c 'end) (at-ident? c 'rescue)
+  (or (at-ident? c 'end) (at-ident? c 'rescue) (at-ident? c 'else)
       (at-ident? c 'after) (at-ident? c 'catch)))
 
 (define (parse-try c)
   (expect-ident! c 'do)
   (let ((body (mk-block (parse-statements c try-section-end?))))
-    (let loop ((rescue-cls '()) (after-body #f))
+    (let loop ((rescue-cls '()) (catch-cls '()) (else-cls '()) (after-body #f))
       (skip-newlines! c)
       (cond
-       ((at-ident? c 'end) (advance! c) `(try ,body ,rescue-cls ,after-body))
+       ((at-ident? c 'end) (advance! c)
+        `(try ,body ,rescue-cls ,catch-cls ,else-cls ,after-body))
        ((at-ident? c 'rescue)
-        (advance! c) (loop (parse-rescue-clauses c) after-body))
+        (advance! c) (loop (parse-rescue-clauses c) catch-cls else-cls after-body))
+       ((at-ident? c 'catch)  ; catch thrown values (stab clauses on the value)
+        (advance! c) (loop rescue-cls (parse-rescue-clauses c) else-cls after-body))
+       ((at-ident? c 'else)   ; else: matched against the body's success value
+        (advance! c) (loop rescue-cls catch-cls (parse-rescue-clauses c) after-body))
        ((at-ident? c 'after)
-        (advance! c) (loop rescue-cls (mk-block (parse-statements c try-section-end?))))
+        (advance! c) (loop rescue-cls catch-cls else-cls (mk-block (parse-statements c try-section-end?))))
        (else (error "elixir parser: unsupported try section at line"
                     (token-line (peek c))))))))
 
