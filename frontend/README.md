@@ -84,6 +84,26 @@ int             [~c"1"]
   handles `('match a b)` (match both sides against the subject). Found by writing
   the tokenizer; the kind of pattern a transpiled frontend leans on.
 
+### Phase 1 — a parser emitting Elixir's quoted AST (in progress)
+
+- ✅ **A Pratt parser runs on Elixism and produces Elixir's real
+  `{name, meta, args}` quoted AST**, validated by diffing against
+  `Code.string_to_quoted`. `frontend/parser.ex` consumes the token stream and
+  climbs precedence exactly per `elixir_parser.yrl`; `frontend/ast_canon.ex` is a
+  shared canonical AST renderer (Lisp-prefix form, meta dropped) used by both the
+  BEAM dumper (`dump_beam_ast.exs`) and the Elixism dumper (`dump_elixism_ast.ex`);
+  `frontend/run_ast_diff.sh <file>` diffs one expression, `frontend/check_ast.sh`
+  runs the whole corpus (`corpus-ast/exprs.txt`).
+- ✅ **44/44 expression snippets parse identically to the BEAM** — the full
+  operator table with correct precedence/associativity (incl. right-assoc `=`,
+  left-assoc `**`, `++`/`<>` right, the comparison/boolean ladder), unary
+  `+`/`-`/`!`/`^`/`not`/`@`, parentheses, lists (incl. cons `[a | b]`), tuples
+  (2 → literal, n → `{:{}}`), paren calls `f(...)`, remote calls `a.b`/`a.b(...)`,
+  aliases (`Foo.Bar` → `__aliases__`), and pipelines.
+- Not yet: no-paren "command" calls (`foo bar, baz`), keyword lists, maps,
+  do/end blocks, `&` captures, string interpolation in the AST, and
+  multi-statement `__block__`s — the next parser increments.
+
 **Next**
 1. **Remaining tokenizer surface:** the last edge cases (numeric base errors,
    unicode escapes `\xHH`/`\uHHHH`, multi-letter/upper sigils' modifiers), then

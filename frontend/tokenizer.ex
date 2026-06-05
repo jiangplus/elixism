@@ -150,6 +150,7 @@ defmodule Tokenizer do
   defp scan([?| | t], acc), do: scan(t, bop({:pipe_op, :|}, acc))
   defp scan([?+ | t], acc), do: scan(t, [{:dual_op, :+} | acc])
   defp scan([?- | t], acc), do: scan(t, [{:dual_op, :-} | acc])
+  defp scan([?*, ?* | t], acc), do: scan(t, bop({:power_op, :"**"}, acc))
   defp scan([?* | t], acc), do: scan(t, bop({:mult_op, :*}, acc))
   defp scan([?/ | t], acc), do: scan(t, bop({:mult_op, :/}, acc))
   defp scan([?= | t], acc), do: scan(t, bop({:match_op, :=}, acc))
