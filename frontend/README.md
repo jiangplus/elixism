@@ -121,17 +121,33 @@ int             [~c"1"]
   paren-calls (`foo()[0]`) and aliases (`Foo[x]`), with the right precedence vs
   prefix ops (`@a[i]` is `(@a)[i]`; `-a[i]` is `-(a[i])`).
 
-**Next**
-1. **Remaining tokenizer surface:** a few last edge cases (numeric base errors,
-   raw high-byte `\x80`–`\xFF` string escapes — which need binary-level string
-   building, sigil-modifier validation), then **transpile `elixir_tokenizer.erl`
-   → Elixir** (Erlang→Elixir, `erl2ex`-style + fixups). The pieces a transpile
-   needs are present: the `:erlang`/`:lists` calls resolve; map
-   `#elixir_tokenizer{}` → a struct; adjust 1-indexed tuples and guard syntax.
-2. **Companions (phase 0.5):** `elixir_interpolation.erl` (~288 lines, also
-   charlist-based) for real strings/sigils; approximate error messages first.
-3. **Run the gate:** compile the transpiled tokenizer with Elixism, dump its
-   tokens for a corpus (`examples/*.ex`, the parser source), and diff against the
-   BEAM. Identical = Phase 0 done.
+### Transpiling the real `elixir_tokenizer.erl` (in progress)
+
+The endgame: replace the hand-written tokenizer with a **mechanical port of
+Elixir's actual `elixir_tokenizer.erl`** (1965 lines, fetched at `v1.19.5` into
+`frontend/upstream/`), so the frontend inherits the BEAM's exact lexing — every
+edge case and error — by construction. The same gate validates it (the real
+tokenizer emits tokens with location; the canonical dump drops it).
+
+- ✅ **Survey + strategy** — `frontend/upstream/TRANSPILE.md` maps every
+  construct: the ~30 operator macros and the `.hrl` char-class macros → inline
+  guards (full tables), the `#elixir_tokenizer{}` record → a struct, the
+  Erlang→Elixism syntax cheatsheet, a dependency triage (`lists:*` done;
+  `io_lib`/errors stubbed; `elixir_interpolation` deferred), the host-quirk
+  workarounds, and a leaves→root staged order. (78 functions; `tokenize/5` is
+  92 clauses.)
+- ✅ **Stage 1 — scope + number leaves** — `frontend/transpiled/tokenizer.ex`
+  ports the `#elixir_tokenizer{}` struct and the self-contained number leaves
+  (`tokenize_number/hex/octal/bin`, `reverse_number`) plus a `number/1` entry
+  mirroring the base-integer / digit clauses. `frontend/transpiled/check_numbers.sh`
+  diffs `kind` + integer **value** + original representation against Elixir's
+  own `:elixir_tokenizer` over `corpus-numbers.txt` → *number tokens identical
+  (23 literals)*. (`list_to_integer/2` is a base fold — the host has no base-N
+  parse; the `try/catch` float cast becomes an up-front digit guard.)
+- **Next stages:** (2) operator/delimiter/eol clauses → gate on a
+  numbers+operators corpus; (3) identifiers/atoms/keywords + `handle_*` dispatch
+  + terminator tracking; (4) strings/sigils/heredocs (needs the
+  `elixir_interpolation.erl` companion, ~288 lines); (5) error/warning meta;
+  (6) swap in the transpiled module, full corpus + self-host.
 
 Then Phases 1–4 (quoted AST, grammar conformance, macros, self-host the parser).
