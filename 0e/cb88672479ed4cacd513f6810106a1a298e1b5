@@ -1,0 +1,23 @@
+frontend/transpiled/corpus-ops.txt
+  s_8e9977ffd5237f::t_615a2e3b067b0a 52-59
+frontend/transpiled/tokenizer.ex
+  s_8e9977ffd5237f::t_4431e48200e430 85-128
+frontend/README.md
+  s_8e9977ffd5237f::t_e285efe7207d99 155-158
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "0ecb88672479ed4cacd513f6810106a1a298e1b5",
+  "prompts": {},
+  "sessions": {
+    "s_8e9977ffd5237f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa7bf6bc-f474-4925-a494-a8ea455f13a6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
