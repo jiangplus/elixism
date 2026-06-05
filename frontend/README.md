@@ -58,6 +58,10 @@ int             [~c"1"]
   - **numbers** — decimal, **hex/octal/binary** (`0x45`/`0o17`/`0b101`),
     **digit-group underscores** (`1_000`, `0xFF_FF`), floats with **exponents**
     (`6.022e23`, `1.0e-9`);
+  - **access heads** — an identifier *immediately* followed by `[` (no space) is
+    a `bracket_identifier` (`a[b]` → `Access.get`); `a [b]` (a space) stays an
+    `identifier` (a call). This one whitespace bit is the only place Elixir's
+    lexing is space-sensitive, and the tokenizer now carries it;
   - **strings & charlists** — `bin_string`/`list_string` with `#{…}`
     interpolation (nested token structure) and `\#` escaping;
   - **heredocs** — `bin_heredoc`/`list_heredoc`, with the BEAM's
@@ -94,10 +98,10 @@ int             [~c"1"]
   BEAM dumper (`dump_beam_ast.exs`) and the Elixism dumper (`dump_elixism_ast.ex`);
   `frontend/run_ast_diff.sh <file>` diffs one file, `frontend/check_ast.sh` runs
   the whole corpus (`corpus-ast/exprs.txt` + every `examples/*.ex`).
-- ✅ **All 11 `examples/*.ex` parse byte-identically to the BEAM** — *whole real
+- ✅ **All 12 `examples/*.ex` parse byte-identically to the BEAM** — *whole real
   modules*: GenServers, supervisors, protocols, structs, comprehensions,
-  binaries/bitstrings, monitors, pin. Plus **44 expression snippets**. The gate
-  reports *55 identical, 0 differ*.
+  binaries/bitstrings, monitors, pin, and Access syntax. Plus **53 expression
+  snippets**. The gate reports *65 identical, 0 differ*.
 - Coverage: the full operator table with correct precedence/associativity (incl.
   right-assoc `=`, left-assoc `**`, `++`/`<>`/`..` right, `<-`, the comp/boolean
   ladder), unary `+`/`-`/`!`/`^`/`not`/`@`, **no-paren command calls** (`foo bar`,
@@ -107,10 +111,10 @@ int             [~c"1"]
   **keyword lists** (inline + trailing call args), **maps** incl. update
   (`%{m | k: v}`), **structs** `%Mod{…}`, **binaries** `<<x::8, …>>`, **`&`
   captures**, **string interpolation** (`{:<<>>}` with `Kernel.to_string`), lists
-  (incl. cons), tuples, paren/remote calls, and aliases.
-- Known gap: `a[b]` access syntax — it is whitespace-sensitive (`a [b]` is a
-  call, `a[b]` is access) and the tokenizer drops that whitespace, so `[`/`{`/`<<`
-  after an identifier are read as command args.
+  (incl. cons), tuples, paren/remote calls, aliases, and **`a[b]` access**
+  (`Access.get`) — chained (`a[:k][:j]`), on remote calls (`state.users[id]`),
+  paren-calls (`foo()[0]`) and aliases (`Foo[x]`), with the right precedence vs
+  prefix ops (`@a[i]` is `(@a)[i]`; `-a[i]` is `-(a[i])`).
 
 **Next**
 1. **Remaining tokenizer surface:** the last edge cases (numeric base errors,

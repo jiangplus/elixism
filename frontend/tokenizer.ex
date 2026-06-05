@@ -197,10 +197,18 @@ defmodule Tokenizer do
       a == :not -> scan(rest, [{:unary_op, :not} | acc])
       a in [:do, :end, :fn, :true, :false, :nil, :after, :else, :catch, :rescue] ->
         scan(rest, [{a, nil} | acc])
+      # an identifier *immediately* followed by `[` (no whitespace) is an access
+      # head — `a[b]` is `Access.get`, whereas `a [b]` (a space) is a call. This
+      # `bracket_identifier` kind is the BEAM's way of carrying that one bit of
+      # whitespace through to the parser.
+      bracket_next?(rest) -> scan(rest, [{:bracket_identifier, a} | acc])
       followed_by_do?(rest) -> scan(rest, [{:do_identifier, a} | acc])
       true -> scan(rest, [{:identifier, a} | acc])
     end
   end
+
+  defp bracket_next?([?[ | _]), do: true
+  defp bracket_next?(_), do: false
 
   # is the next non-whitespace token the `do` keyword? (then `do` boundary)
   defp followed_by_do?([?\s | t]), do: followed_by_do?(t)

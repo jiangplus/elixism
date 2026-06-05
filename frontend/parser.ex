@@ -72,7 +72,24 @@ defmodule Parser do
     led(left, rest, min_bp)
   end
 
+  # access has precedence 310 (access_bp): tighter than the unary `-`/`!`/`^`/`not`
+  # (300, so `-a[0]` is `-(a[0])`) but looser than `@` (320, so `@a[0]` is
+  # `(@a)[0]`). The `[` must be *immediate* — no eol-drop here — since a newline
+  # ends the access.  Access lowers to `Access.get(base, key)`.
+  defp access_bp(), do: 310
+
   # consume left-denotation (infix) operators while they bind tighter than min_bp
+  defp led(left, [{:"[", _} | r], min_bp) do
+    if min_bp < access_bp() do
+      {key, r2} = expr(drop_eol(r), 0)
+      r3 = expect(drop_eol(r2), :"]")
+      access = {{:., [], [:"Elixir.Access", :get]}, [], [left, key]}
+      led(access, r3, min_bp)
+    else
+      {left, [{:"[", nil} | r]}
+    end
+  end
+
   defp led(left, tokens, min_bp) do
     case drop_eol(tokens) do
       [{kind, op} | rest] ->
@@ -122,10 +139,11 @@ defmodule Parser do
   defp prefix([{:bin_string, parts} | r]), do: {string_value(parts), r}
   defp prefix([{:bin_heredoc, parts} | r]), do: {string_value(parts), r}
 
-  # prefix operators
-  defp prefix([{:dual_op, op} | r]), do: unary(op, r)
-  defp prefix([{:unary_op, op} | r]), do: unary(op, r)
-  defp prefix([{:at_op, op} | r]), do: unary(op, r)
+  # prefix operators.  `@` binds tighter than access (320 > 310) so `@a[i]` is
+  # `(@a)[i]`; the others are looser (300 < 310) so `-a[i]` is `-(a[i])`.
+  defp prefix([{:dual_op, op} | r]), do: unary(op, r, 300)
+  defp prefix([{:unary_op, op} | r]), do: unary(op, r, 300)
+  defp prefix([{:at_op, op} | r]), do: unary(op, r, 320)
 
   # grouping
   defp prefix([{:"(", _} | r]) do
@@ -174,12 +192,17 @@ defmodule Parser do
     {{:fn, [], clauses(inner)}, rest}
   end
 
+  # an access head `a[…]`: yield the bare variable and leave the `[` in place —
+  # `led` applies the `Access.get` postfix (so `@a[i]`, `-a[i]`, `a[i][j]` all
+  # nest by precedence rather than being grabbed greedily here).
+  defp prefix([{:bracket_identifier, v} | r]), do: {{v, [], nil}, r}
+
   # bare identifiers -> variable, no-paren command call, or call with a do-block
   defp prefix([{:identifier, v} | r]), do: command_or_var(v, r)
   defp prefix([{:do_identifier, v} | r]), do: command_or_var(v, r)
 
-  defp unary(op, tokens) do
-    {operand, rest} = expr(tokens, 300)
+  defp unary(op, tokens, bp) do
+    {operand, rest} = expr(tokens, bp)
     {{op, [], [operand]}, rest}
   end
 
@@ -199,6 +222,11 @@ defmodule Parser do
 
       [{:alias, a} | r] ->
         postfix(append_alias(left, a), r)
+
+      # `a.b[…]` — the tokenizer marks `b` as a bracket head, so this is a
+      # no-paren remote call `a.b` with access applied; leave the `[` for `led`.
+      [{:bracket_identifier, f} | r] ->
+        {{{:., [], [left, f]}, [], []}, r}
 
       [{:identifier, f} | r] ->
         if starts_arg?(r) do
@@ -355,14 +383,16 @@ defmodule Parser do
   defp arg_starter?(:sigil), do: true
   defp arg_starter?(:identifier), do: true
   defp arg_starter?(:do_identifier), do: true
+  defp arg_starter?(:bracket_identifier), do: true
   defp arg_starter?(:paren_identifier), do: true
   defp arg_starter?(:alias), do: true
   defp arg_starter?(:kw_identifier), do: true
   defp arg_starter?(:capture_op), do: true
   defp arg_starter?(:at_op), do: true
-  # NB: `[`/`{`/`%{}` as command args (defstruct [...], foo %{}) is whitespace-
-  # sensitive in real Elixir (`a [b]` is a call, `a[b]` is access). Our tokenizer
-  # drops that whitespace, so access syntax `a[b]` is not yet supported.
+  # `[`/`{`/`%{}` as command args — `defstruct [...]`, `foo %{}`. The `a [b]` vs
+  # `a[b]` ambiguity is resolved upstream: the tokenizer emits a
+  # `bracket_identifier` for the no-space access form, so a plain `:"["` arg here
+  # only ever follows a space (a command call), never an access head.
   defp arg_starter?(:"["), do: true
   defp arg_starter?(:"{"), do: true
   defp arg_starter?(:"%{}"), do: true

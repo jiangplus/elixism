@@ -42,3 +42,12 @@ true
 false
 nil
 a |> Enum.map(f)
+opts[:key]
+opts[:a][:b]
+state.users[id]
+@config[:port]
+-scores[0]
+a[0] + b[1]
+foo()[0]
+Foo[x]
+config[key] || default
