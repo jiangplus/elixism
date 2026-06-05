@@ -11,6 +11,9 @@ defmodule Dump do
   end
 
   defp line(:bin_string, parts), do: "bin_string\t#{canon_parts(parts)}"
+  defp line(:list_string, parts), do: "list_string\t#{canon_parts(parts)}"
+  defp line(:bin_heredoc, parts), do: "bin_heredoc\t#{canon_parts(parts)}"
+  defp line(:list_heredoc, parts), do: "list_heredoc\t#{canon_parts(parts)}"
   # a `nil` token *kind* renders as empty on the BEAM (`"#{nil}" == ""`); match it
   defp line(nil, _), do: "\t"
   # the atom `:nil` is the value `nil`, but still prints its name ("atom\tnil");

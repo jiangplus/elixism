@@ -60,9 +60,34 @@ defmodule Tokenizer do
 
   # double-quoted strings, with #{...} interpolation -> bin_string whose value is
   # a list of parts: literal strings and {:interp, inner_tokens}.
+  # heredocs  """ ... """  and  ''' ... '''  (must precede the single-quote forms)
+  defp scan([?", ?", ?" | t], acc) do
+    {parts, rest} = heredoc(t, ?")
+    scan(rest, [{:bin_heredoc, parts} | acc])
+  end
+
+  defp scan([?', ?', ?' | t], acc) do
+    {parts, rest} = heredoc(t, ?')
+    scan(rest, [{:list_heredoc, parts} | acc])
+  end
+
   defp scan([?" | t], acc) do
-    {parts, rest} = str_parts(t, [], [])
+    {parts, rest} = qstr(t, ?", [], [])
     scan(rest, [{:bin_string, parts} | acc])
+  end
+
+  # single-quoted charlists  'abc'  -> list_string (same parts shape as bin_string)
+  defp scan([?' | t], acc) do
+    {parts, rest} = qstr(t, ?', [], [])
+    scan(rest, [{:list_string, parts} | acc])
+  end
+
+  # sigils  ~w[...]  ~r/.../i  -> a `sigil` token carrying the :sigil_<name> atom
+  # (the BEAM canonical form is just the name; content/modifiers are skipped).
+  defp scan([?~, c | t], acc) when (c >= ?a and c <= ?z) or (c >= ?A and c <= ?Z) do
+    {name, after_name} = ident_run([c | t], [])
+    rest = sigil_mods(sigil_body(after_name))
+    scan(rest, [{:sigil, List.to_atom([?s, ?i, ?g, ?i, ?l, ?_ | name])} | acc])
   end
 
   # char literals  ?x  ?\n  ?(  — value is the codepoint.  Escapes first, then
@@ -209,6 +234,10 @@ defmodule Tokenizer do
   defp digit_run([c | t], acc) when c >= ?0 and c <= ?9, do: digit_run(t, [c | acc])
   defp digit_run(rest, acc), do: {Enum.reverse(acc), rest}
 
+  # like digit_run but allows the digit-group separator `_` (1_000)
+  defp num_run([c | t], acc) when (c >= ?0 and c <= ?9) or c == ?_, do: num_run(t, [c | acc])
+  defp num_run(rest, acc), do: {Enum.reverse(acc), rest}
+
   # hex / octal / binary integer literals keep their original text (0x45, 0o17, 0b101)
   defp number([?0, ?x | t]) do
     {ds, rest} = hex_run(t, [])
@@ -216,17 +245,17 @@ defmodule Tokenizer do
   end
 
   defp number([?0, ?o | t]) do
-    {ds, rest} = digit_run(t, [])
+    {ds, rest} = num_run(t, [])
     {{:int, [?0, ?o | ds]}, rest}
   end
 
   defp number([?0, ?b | t]) do
-    {ds, rest} = digit_run(t, [])
+    {ds, rest} = num_run(t, [])
     {{:int, [?0, ?b | ds]}, rest}
   end
 
   defp hex_run([c | t], acc) when (c >= ?0 and c <= ?9) or (c >= ?a and c <= ?f) or
-                                  (c >= ?A and c <= ?F) do
+                                  (c >= ?A and c <= ?F) or c == ?_ do
     hex_run(t, [c | acc])
   end
 
@@ -258,43 +287,151 @@ defmodule Tokenizer do
   defp quoted_atom([?\\, c | t], acc), do: quoted_atom(t, [c | acc])
   defp quoted_atom([c | t], acc), do: quoted_atom(t, [c | acc])
 
-  # integer, or float when a '.' is followed by a digit (exponents: later)
+  # integer, or float when a '.' is followed by a digit; floats may carry an
+  # exponent (1.5e10, 1.0e-3).  Underscores are kept as written (1_000).
   defp number(chars) do
-    {int_part, rest} = digit_run(chars, [])
+    {int_part, rest} = num_run(chars, [])
 
     case rest do
       [?., d | t] when d >= ?0 and d <= ?9 ->
-        {frac, rest2} = digit_run([d | t], [])
-        {{:flt, int_part ++ [?.] ++ frac}, rest2}
+        {frac, rest2} = num_run([d | t], [])
+        {exp, rest3} = exponent(rest2)
+        {{:flt, int_part ++ [?.] ++ frac ++ exp}, rest3}
 
       _ ->
         {{:int, int_part}, rest}
     end
   end
 
-  # str_parts(chars, parts, lit_acc) -> {parts, rest_after_closing_quote}.
-  # Accumulates literal codepoints in lit_acc; on `#{` it flushes the literal,
-  # tokenizes the interpolation expression, and continues.
-  defp str_parts([?" | t], parts, lit), do: {finish_parts(parts, lit), t}
-
-  defp str_parts([?#, ?{ | t], parts, lit) do
-    {inner, rest} = take_interp(t, 0, [])
-    str_parts(rest, [{:interp, tokenize(inner)} | flush_lit(parts, lit)], [])
+  # an optional float exponent: e / E, an optional sign, then digits
+  defp exponent([e, ?+ | t]) when e == ?e or e == ?E do
+    {ds, rest} = num_run(t, [])
+    {[e, ?+ | ds], rest}
   end
 
-  defp str_parts([?\\, ?# | t], parts, lit), do: str_parts(t, parts, [?# | lit])
-  defp str_parts([?\\, ?" | t], parts, lit), do: str_parts(t, parts, [?" | lit])
-  defp str_parts([?\\, ?\\ | t], parts, lit), do: str_parts(t, parts, [?\\ | lit])
-  defp str_parts([?\\, ?n | t], parts, lit), do: str_parts(t, parts, [?\n | lit])
-  defp str_parts([?\\, ?t | t], parts, lit), do: str_parts(t, parts, [?\t | lit])
-  defp str_parts([?\\, ?r | t], parts, lit), do: str_parts(t, parts, [?\r | lit])
-  defp str_parts([c | t], parts, lit), do: str_parts(t, parts, [c | lit])
+  defp exponent([e, ?- | t]) when e == ?e or e == ?E do
+    {ds, rest} = num_run(t, [])
+    {[e, ?- | ds], rest}
+  end
+
+  defp exponent([e, d | t]) when (e == ?e or e == ?E) and d >= ?0 and d <= ?9 do
+    {ds, rest} = num_run([d | t], [])
+    {[e | ds], rest}
+  end
+
+  defp exponent(rest), do: {[], rest}
+
+  # qstr(chars, quote, parts, lit_acc) -> {parts, rest_after_closing_quote}.
+  # Quote-parameterized so it serves both "double" (bin_string) and 'single'
+  # (list_string) strings.  Accumulates literal codepoints in lit_acc; on `#{` it
+  # flushes the literal, tokenizes the interpolation expression, and continues.
+  defp str_parts(chars, parts, lit), do: qstr(chars, ?", parts, lit)
+
+  defp qstr([?#, ?{ | t], q, parts, lit) do
+    {inner, rest} = take_interp(t, 0, [])
+    qstr(rest, q, [{:interp, tokenize(inner)} | flush_lit(parts, lit)], [])
+  end
+
+  defp qstr([?\\, ?# | t], q, parts, lit), do: qstr(t, q, parts, [?# | lit])
+  defp qstr([?\\, ?\\ | t], q, parts, lit), do: qstr(t, q, parts, [?\\ | lit])
+  defp qstr([?\\, ?n | t], q, parts, lit), do: qstr(t, q, parts, [?\n | lit])
+  defp qstr([?\\, ?t | t], q, parts, lit), do: qstr(t, q, parts, [?\t | lit])
+  defp qstr([?\\, ?r | t], q, parts, lit), do: qstr(t, q, parts, [?\r | lit])
+  defp qstr([?\\, c | t], q, parts, lit), do: qstr(t, q, parts, [c | lit])
+  defp qstr([c | t], q, parts, lit) when c == q, do: {finish_parts(parts, lit), t}
+  defp qstr([c | t], q, parts, lit), do: qstr(t, q, parts, [c | lit])
 
   # flush the current literal codepoints (if any) as a string part
   defp flush_lit(parts, []), do: parts
   defp flush_lit(parts, lit), do: [List.to_string(Enum.reverse(lit)) | parts]
 
   defp finish_parts(parts, lit), do: Enum.reverse(flush_lit(parts, lit))
+
+  # ---- heredocs -------------------------------------------------------------
+  # heredoc(chars, quote) where chars start just after the opening triple-quote.
+  # The opening line's remainder is discarded; content lines are collected until
+  # the terminator line (leading ws + triple-quote), then dedented by the
+  # terminator's indentation — exactly as the BEAM produces the parts.
+  defp heredoc(chars, q) do
+    {_open, body} = take_line(chars, [])
+    {lines, indent, tail} = heredoc_lines(body, q, [])
+    {body_parts(dedent_join(lines, indent), [], []), tail}
+  end
+
+  # collect raw content lines until a terminator (ws* + qqq); returns the content
+  # lines, the terminator's indent, and the chars after the closing quote.
+  defp heredoc_lines(chars, q, lines) do
+    {indent, after_ws} = leading_ws(chars, 0)
+
+    case after_ws do
+      [a, b, c | tail] when a == q and b == q and c == q ->
+        {Enum.reverse(lines), indent, tail}
+
+      _ ->
+        {line, rest} = take_line(chars, [])
+        heredoc_lines(rest, q, [line | lines])
+    end
+  end
+
+  defp take_line([], acc), do: {Enum.reverse(acc), []}
+  defp take_line([?\n | t], acc), do: {Enum.reverse(acc), t}
+  defp take_line([c | t], acc), do: take_line(t, [c | acc])
+
+  defp leading_ws([?\s | t], n), do: leading_ws(t, n + 1)
+  defp leading_ws([?\t | t], n), do: leading_ws(t, n + 1)
+  defp leading_ws(rest, n), do: {n, rest}
+
+  # join content lines with newlines (incl. a trailing one), dedenting each by up
+  # to `indent` leading whitespace chars.
+  defp dedent_join([], _indent), do: []
+  defp dedent_join([line | rest], indent) do
+    drop_ws(line, indent) ++ [?\n | dedent_join(rest, indent)]
+  end
+
+  defp drop_ws(line, 0), do: line
+  defp drop_ws([?\s | t], n), do: drop_ws(t, n - 1)
+  defp drop_ws([?\t | t], n), do: drop_ws(t, n - 1)
+  defp drop_ws(line, _n), do: line
+
+  # like qstr but with no closing quote — consumes a whole (already-dedented) body
+  defp body_parts([], parts, lit), do: finish_parts(parts, lit)
+
+  defp body_parts([?#, ?{ | t], parts, lit) do
+    {inner, rest} = take_interp(t, 0, [])
+    body_parts(rest, [{:interp, tokenize(inner)} | flush_lit(parts, lit)], [])
+  end
+
+  defp body_parts([?\\, ?# | t], parts, lit), do: body_parts(t, parts, [?# | lit])
+  defp body_parts([?\\, ?\\ | t], parts, lit), do: body_parts(t, parts, [?\\ | lit])
+  defp body_parts([?\\, ?n | t], parts, lit), do: body_parts(t, parts, [?\n | lit])
+  defp body_parts([?\\, ?t | t], parts, lit), do: body_parts(t, parts, [?\t | lit])
+  defp body_parts([?\\, ?r | t], parts, lit), do: body_parts(t, parts, [?\r | lit])
+  defp body_parts([?\\, c | t], parts, lit), do: body_parts(t, parts, [c | lit])
+  defp body_parts([c | t], parts, lit), do: body_parts(t, parts, [c | lit])
+
+  # ---- sigils ---------------------------------------------------------------
+  # Skip a sigil's body, returning the chars after the closing delimiter.  Paired
+  # delimiters ( [ { < nest; the others ( / | " ' ) close on themselves.  We only
+  # need to find the end (the canonical token is just the sigil name).
+  defp sigil_body([?( | t]), do: sigil_paired(t, ?(, ?), 0)
+  defp sigil_body([?[ | t]), do: sigil_paired(t, ?[, ?], 0)
+  defp sigil_body([?{ | t]), do: sigil_paired(t, ?{, ?}, 0)
+  defp sigil_body([?< | t]), do: sigil_paired(t, ?<, ?>, 0)
+  defp sigil_body([d | t]), do: sigil_same(t, d)
+
+  defp sigil_same([?\\, _ | t], d), do: sigil_same(t, d)
+  defp sigil_same([c | t], d) when c == d, do: t
+  defp sigil_same([_ | t], d), do: sigil_same(t, d)
+
+  defp sigil_paired([?\\, _ | t], o, c, d), do: sigil_paired(t, o, c, d)
+  defp sigil_paired([x | t], _o, c, 0) when x == c, do: t
+  defp sigil_paired([x | t], o, c, d) when x == c, do: sigil_paired(t, o, c, d - 1)
+  defp sigil_paired([x | t], o, c, d) when x == o, do: sigil_paired(t, o, c, d + 1)
+  defp sigil_paired([_ | t], o, c, d), do: sigil_paired(t, o, c, d)
+
+  # trailing modifier letters (e.g. the `i` in ~r/.../i)
+  defp sigil_mods([c | t]) when (c >= ?a and c <= ?z) or (c >= ?A and c <= ?Z), do: sigil_mods(t)
+  defp sigil_mods(rest), do: rest
 
   # collect the chars of a #{...} expression up to the matching '}' (tracks {})
   defp take_interp([?} | t], 0, acc), do: {Enum.reverse(acc), t}

@@ -43,6 +43,9 @@ case :elixir_tokenizer.tokenize(String.to_charlist(src), 1, 1, []) do
       v =
         case {kind, tl(rest)} do
           {:bin_string, [bsparts]} -> Canon.parts(bsparts)
+          {:list_string, [bsparts]} -> Canon.parts(bsparts)
+          {:bin_heredoc, [_indent, bsparts]} -> Canon.parts(bsparts)
+          {:list_heredoc, [_indent, bsparts]} -> Canon.parts(bsparts)
           {_, []} -> ""
           {_, [x | _]} when is_atom(x) -> Atom.to_string(x)
           {_, [x | _]} when is_list(x) -> List.to_string(x)

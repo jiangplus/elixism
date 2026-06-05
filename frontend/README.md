@@ -49,36 +49,44 @@ int             [~c"1"]
 - ✅ **A tokenizer runs on Elixism and matches the BEAM byte-for-byte** on real
   files. `frontend/tokenizer.ex` is an Elixir tokenizer (charlist cons-matching,
   same token kinds as the BEAM) compiled by Elixism; `frontend/run_diff.sh
-  <file>` tokenizes a file both ways and diffs (`✓ identical`). Covered:
-  identifiers + `paren_`/`kw_`/`do_identifier`, aliases, keywords, atoms
-  (incl. uppercase/underscore, **operator atoms** like `:==`/`:|>` with the exact
-  atom-able set, and **quoted atoms** `:"…"` → `atom_quoted`), integers
-  (**decimal + hex/octal/binary** `0x45`/`0o17`/`0b101`), **floats**, **strings**
-  (`bin_string`) with **`#{…}` interpolation** (nested token structure) and `\#`
-  escaping, **char literals** `?x`/`?\n`/`?(`, the full operator table including
-  the **word operators** `when_op`/`and_op`/`or_op`/`in_op`/`unary_op not`,
-  `capture_op &`, `unary_op ^`/`!`, delimiters, `;`, `<<`/`>>`, `%{}`/`%`, `@`,
-  comments, and `eol` — with the two real eol rules: **fold** (a line starting
-  with a binary op continues the previous) and **suppress after `,`** (a
-  multi-line list/map/args is one logical line; comment lines are absorbed into
-  the eol run).
-- ✅ **All 11 `examples/*.ex` tokenize identically to the BEAM** — from
-  `fib.ex` (60 tokens) up to `genserver.ex` (212) and `supervisor.ex` (183) —
-  covering GenServers, supervisors, protocols, structs, comprehensions,
-  bit-syntax, monitors, and pin/`^`.
-- ✅ **The tokenizer is self-applicable:** it tokenizes its *own* source
-  (`frontend/tokenizer.ex`, **4333 tokens**) and both dumpers byte-for-byte
-  identically to the BEAM. (Two BEAM-faithful rendering quirks were matched in
-  the dumper: the `nil` token *kind* prints empty via `"#{nil}"`, while the atom
-  `:nil` prints its name.)
+  <file>` tokenizes a file both ways and diffs, and `frontend/check_all.sh` runs
+  the whole corpus. Covered:
+  - identifiers + `paren_`/`kw_`/`do_identifier`, aliases, keywords;
+  - **atoms** — plain, uppercase/underscore, **operator atoms** (`:==`/`:|>`,
+    with the exact atom-able set so `:=>` correctly splits to `:=` + `>`), and
+    **quoted atoms** `:"…"` → `atom_quoted`;
+  - **numbers** — decimal, **hex/octal/binary** (`0x45`/`0o17`/`0b101`),
+    **digit-group underscores** (`1_000`, `0xFF_FF`), floats with **exponents**
+    (`6.022e23`, `1.0e-9`);
+  - **strings & charlists** — `bin_string`/`list_string` with `#{…}`
+    interpolation (nested token structure) and `\#` escaping;
+  - **heredocs** — `bin_heredoc`/`list_heredoc`, with the BEAM's
+    indentation-dedent algorithm reproduced so the parts match exactly;
+  - **sigils** — `~w`/`~r`/`~S`/… → `sigil` (`:sigil_<name>`), delimiter- and
+    nesting-aware body skipping, modifiers;
+  - **char literals** `?x`/`?\n`/`?(`;
+  - the full operator table incl. **word operators**
+    `when_op`/`and_op`/`or_op`/`in_op`/`unary_op not`, `capture_op &`,
+    `unary_op ^`/`!`, delimiters, `;`, `<<`/`>>`, `%{}`/`%`, `@`, comments;
+  - `eol` with the two real rules — **fold** (a line starting with a binary op
+    continues the previous) and **suppress after `,`** (a multi-line
+    list/map/args is one logical line; comment lines are absorbed into the run).
+- ✅ **The whole corpus tokenizes identically to the BEAM** (`frontend/check_all.sh`
+  → *15 identical, 0 differ*, 8284 tokens): all 11 `examples/*.ex` (GenServers,
+  supervisors, protocols, structs, comprehensions, bit-syntax, monitors, pin),
+  a lexical kitchen-sink (`frontend/corpus/lexical.ex`), and — proving
+  **self-application** — the tokenizer's own source (5936 tokens) and both
+  dumpers. (Two BEAM-faithful rendering quirks are matched in the dumper: the
+  `nil` token *kind* prints empty via `"#{nil}"`, while the atom `:nil` prints
+  its name.)
 - ✅ **Compiler bug fixed en route:** a `[h | _] = whole` pattern in a function
   head *raised* on mismatch instead of failing the clause; `compile-pattern` now
   handles `('match a b)` (match both sides against the subject). Found by writing
   the tokenizer; the kind of pattern a transpiled frontend leans on.
 
 **Next**
-1. **Remaining tokenizer surface:** sigils (`~w`/`~r`/`~c`), heredocs, charlist
-   literals `'…'`, numeric underscores (`1_000`) and exponents, then
+1. **Remaining tokenizer surface:** the last edge cases (numeric base errors,
+   unicode escapes `\xHH`/`\uHHHH`, multi-letter/upper sigils' modifiers), then
    **transpile `elixir_tokenizer.erl` → Elixir** (Erlang→Elixir, `erl2ex`-style +
    fixups). The pieces a transpile needs are present: the `:erlang`/`:lists`
    calls resolve; map `#elixir_tokenizer{}` → a struct; adjust 1-indexed tuples
