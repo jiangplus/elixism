@@ -8,6 +8,7 @@
 (define-module (elixir eval)
   #:use-module (elixir lexer)
   #:use-module (elixir parser)
+  #:use-module (elixir expand)
   #:use-module (elixir compiler)
   #:use-module (elixir runtime)
   #:use-module (elixir dispatch)
@@ -35,14 +36,15 @@
 (define (load-corelib!)
   (unless *corelib-thunk*
     (set! *corelib-thunk*
-          (compile `(lambda () ,(compile-program (parse corelib-source)))
+          (compile `(lambda () ,(compile-program (expand-program (parse corelib-source))))
                    #:from 'scheme #:to 'value #:env elixir-env)))
   (*corelib-thunk*))
 
 (define (ensure-installed!) (unless *installed* (reset-elixir!)))
 
-;; Source -> Scheme s-expression (pure; this is what Hoot would compile).
-(define (elixir-compile src) (compile-program (parse src)))
+;; Source -> Scheme s-expression.  Parse, run the macro-expansion phase
+;; (quote/unquote + macros), then compile the macro-free AST.
+(define (elixir-compile src) (compile-program (expand-program (parse src))))
 
 ;; Compile the emitted Scheme to a *thunk* of VM bytecode.  We compile
 ;; (rather than `eval`/interpret) so that delimited continuations captured

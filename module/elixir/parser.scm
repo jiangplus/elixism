@@ -524,6 +524,8 @@
       ((defprotocol) (advance! c) (parse-defprotocol c))
       ((defimpl)   (advance! c) (parse-defimpl c))
       ((def defp)  (advance! c) (parse-def c sym))
+      ((defmacro defmacrop) (advance! c) (parse-def c sym))
+      ((quote)     (advance! c) (parse-quote c))
       ((fn)        (advance! c) (parse-fn c))
       ((if)        (advance! c) (parse-if c))
       ((unless)    (advance! c) (parse-unless c))
@@ -624,6 +626,12 @@
         (let ((blk (parse-kwlist c 'eof)))
           `(def ,kind ,name ,params ,guard ,(section (cadr blk) 'do))))
        (else `(def ,kind ,name ,params ,guard (atom nil)))))))
+
+;; quote do … end  ->  (quoted BODY).  The expansion phase (elixir expand)
+;; rewrites this into ordinary AST that builds the {name, meta, args} form.
+(define (parse-quote c)
+  (let ((blk (parse-do-block c)))
+    `(quoted ,(section blk 'do))))
 
 (define (parse-optional-guard c)
   (if (at-ident? c 'when)
