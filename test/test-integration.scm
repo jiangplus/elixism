@@ -279,6 +279,49 @@ A.kind(%U{role: :admin})")))
      (deftest "multiple defaults"
        (assert-equal 111 (ev "defmodule G do\ndef add(a, b \\\\ 10, c \\\\ 100), do: a + b + c\nend\nG.add(1)")))
 
+     ;; --- quote / quoted AST ---
+     (deftest "quote arithmetic"
+       (assert-equal "{:+, [], [1, 2]}" (ev* "quote do\n1 + 2\nend")))
+     (deftest "quote variable"
+       (assert-equal "{:x, [], nil}" (ev* "quote do\nx\nend")))
+     (deftest "quote precedence"
+       (assert-equal "{:+, [], [1, {:*, [], [2, 3]}]}" (ev* "quote do\n1 + 2 * 3\nend")))
+     (deftest "quote call"
+       (assert-equal "{:foo, [], [{:a, [], nil}, {:b, [], nil}]}"
+                     (ev* "quote do\nfoo(a, b)\nend")))
+     (deftest "quote n-tuple"
+       (assert-equal "{:{}, [], [1, 2, 3]}" (ev* "quote do\n{1, 2, 3}\nend")))
+     (deftest "quote remote call"
+       (assert-equal
+        "{{:., [], [{:__aliases__, [], [:Foo]}, :bar]}, [], [{:x, [], nil}]}"
+        (ev* "quote do\nFoo.bar(x)\nend")))
+     (deftest "unquote splice"
+       (assert-equal "{:+, [], [1, 5]}" (ev* "n = 5\nquote do\n1 + unquote(n)\nend")))
+
+     ;; --- macros (defmacro, expanded at compile time) ---
+     (deftest "local macro"
+       (assert-equal 10 (ev "defmodule M do
+defmacro double(x) do
+quote do
+unquote(x) * 2
+end
+end
+def run, do: double(5)
+end
+M.run")))
+     (deftest "remote macro with computed arg"
+       (assert-equal 10 (ev "defmodule M do
+defmacro plus(a, b) do
+quote do
+unquote(a) + unquote(b)
+end
+end
+end
+defmodule N do
+def go, do: M.plus(3 * 3, 1)
+end
+N.go")))
+
      ;; --- errors ---
      (deftest "match error raises"
        (assert-raises (lambda () (ev "{:ok, x} = {:error, 1}"))))
