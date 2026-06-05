@@ -1,0 +1,32 @@
+frontend/corpus/lexical.ex
+  s_8e9977ffd5237f::t_d32918d70661e4 28-31
+  s_8e9977ffd5237f::t_040fa38ce3b1fe 34
+  s_8e9977ffd5237f::t_93c775b28c5af7 33,35
+  s_8e9977ffd5237f::t_5f8623bbaee832 32,36-37
+frontend/tokenizer.ex
+  s_8e9977ffd5237f::t_dc1037145cfdd4 344-348
+  s_8e9977ffd5237f::t_f22614de6d13d3 358-385,390-402
+  s_8e9977ffd5237f::t_4a1e93345d50f1 386-389
+  s_8e9977ffd5237f::t_c3e9b5f88801de 457-461
+frontend/corpus-ast/exprs.txt
+  s_8e9977ffd5237f::t_10f9a3a296d026 54-56
+frontend/README.md
+  s_8e9977ffd5237f::t_49015fe31839c4 125-130
+  s_8e9977ffd5237f::t_2fc568039c85c4 66-71
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "d1139523263147b20bd52bce4783652f79034594",
+  "prompts": {},
+  "sessions": {
+    "s_8e9977ffd5237f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa7bf6bc-f474-4925-a494-a8ea455f13a6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
