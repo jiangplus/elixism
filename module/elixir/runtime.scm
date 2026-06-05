@@ -20,6 +20,10 @@
 (define-module (elixir runtime)
   #:use-module (srfi srfi-1)
   #:use-module (srfi srfi-9)
+  #:use-module ((rnrs bytevectors) #:select
+                (string->utf8 bytevector? bytevector=? bytevector-length
+                 make-bytevector bytevector-copy! bytevector-u8-ref
+                 bytevector-u8-set! u8-list->bytevector bytevector->u8-list))
   #:use-module (ice-9 match)
   #:export (;; tuples
             make-tuple tuple? tuple-ref tuple-size tuple->list list->tuple
@@ -43,6 +47,8 @@
             ex-enumerate ex-into ex-bin-seg string-be->int bin-seg-width
             ex-build-binary binary-bits-ref
             ex-skip-ws ex-scan-string ex-scan-number
+            make-bin bin? bin-bv binary-bytes bytes->binary
+            binary=? binary-byte-size binary-part binary-at
             ;; inspection
             inspect ex->display
             ;; errors
@@ -63,6 +69,16 @@
 (define (tuple-elements t) (vector->list (tuple-vec t)))
 (define (tuple-ref t i) (vector-ref (tuple-vec t) i))
 (define (tuple-size t) (vector-length (tuple-vec t)))
+
+;; Raw binary: a bytevector.  Elixir binaries are *byte* sequences; a UTF-8
+;; string models the text case, a <bin> models bytes that need not be valid
+;; UTF-8 (e.g. <<255, 0, 128>>).  Defined here so its predicate is in scope for
+;; ex-binary?/ex-equal? below (Guile's srfi-9 predicate is an inlinable syntax
+;; binding, so it must precede its uses).
+(define-record-type <bin>
+  (make-bin bv)
+  bin?
+  (bv bin-bv))
 
 ;;; ----------------------------------------------------------------------
 ;;; Maps  (immutable, equal?-keyed; backed by an alist for the slice)
@@ -138,7 +154,7 @@
 (define (ex-float? v) (and (real? v) (inexact? v)))
 (define (ex-number? v) (and (number? v) (or (ex-integer? v) (ex-float? v))))
 (define (ex-atom? v) (symbol? v))
-(define (ex-binary? v) (string? v))
+(define (ex-binary? v) (or (string? v) (bin? v)))
 (define (ex-list? v) (list? v))
 (define (ex-tuple? v) (tuple? v))
 (define (ex-map? v) (emap? v))
@@ -163,6 +179,8 @@
    ((and (pair? a) (pair? b))
     (and (ex-equal? (car a) (car b)) (ex-equal? (cdr a) (cdr b))))
    ((and (string? a) (string? b)) (string=? a b))
+   ;; any binary vs any binary (string or <bin>) compares by bytes
+   ((or (bin? a) (bin? b)) (and (ex-binary? a) (ex-binary? b) (binary=? a b)))
    (else (eqv? a b))))
 
 ;; === is stricter: 1 === 1.0 is false.
@@ -216,7 +234,14 @@
 (define (ex-or a b) (if (ex-truthy? a) a b))
 
 (define (ex-++ a b) (append a b))
-(define (ex-<> a b) (string-append a b))
+(define (ex-<> a b)
+  (if (and (string? a) (string? b))
+      (string-append a b)                       ; text fast path
+      (let* ((ba (binary-bytes a)) (bb (binary-bytes b))
+             (out (make-bytevector (+ (bytevector-length ba) (bytevector-length bb)))))
+        (bytevector-copy! ba 0 out 0 (bytevector-length ba))
+        (bytevector-copy! bb 0 out (bytevector-length ba) (bytevector-length bb))
+        (bytes->binary out))))
 (define (ex-in? x coll) (->ex-bool (and (member x coll ex-equal?) #t)))
 
 ;; Range a..b is materialised as an inclusive integer list for the slice.
@@ -235,6 +260,30 @@
 
 (define (string->charlist s) (map char->integer (string->list s)))
 (define (charlist->string cl) (list->string (map integer->char cl)))
+
+;;; Raw binaries (the <bin> record is defined up top, near <tuple>/<emap>, so
+;;; its predicate is in scope for ex-binary?/ex-equal?).
+;; The bytes of any binary value, as a bytevector.
+(define (binary-bytes v)
+  (cond ((bin? v) (bin-bv v))
+        ((string? v) (string->utf8 v))
+        (else (ex-raise (make-tuple 'ArgumentError "expected a binary")))))
+
+;; Wrap a bytevector as a binary value.  (Kept raw; equality/inspect bridge it
+;; to strings, so callers never need to know which representation they hold.)
+(define (bytes->binary bv) (make-bin bv))
+
+(define (binary=? a b) (bytevector=? (binary-bytes a) (binary-bytes b)))
+(define (binary-byte-size v) (bytevector-length (binary-bytes v)))
+
+;; A sub-binary: `len` bytes starting at byte `start` (0-based).  O(len) copy.
+(define (binary-part v start len)
+  (let* ((bv (binary-bytes v)) (out (make-bytevector len)))
+    (bytevector-copy! bv start out 0 len)
+    (bytes->binary out)))
+
+;; Byte at index `i` (0-based).
+(define (binary-at v i) (bytevector-u8-ref (binary-bytes v) i))
 
 ;;; Fast scanning primitives.  A recursive-descent parser written in Elixir
 ;;; makes one function call *per character* in its inner loops (whitespace,
@@ -414,6 +463,8 @@
    ((and (integer? v) (exact? v)) (number->string v))
    ((number? v) (number->string v))
    ((string? v) (string-append "\"" v "\""))
+   ((bin? v) (string-append "<<" (join-list (map number->string
+                                                  (bytevector->u8-list (bin-bv v)))) ">>"))
    ((null? v) "[]")
    ((pair? v) (string-append "[" (join-inspect v) "]"))
    ((tuple? v) (string-append "{" (join-list (map inspect (tuple->list v))) "}"))

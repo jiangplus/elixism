@@ -64,6 +64,10 @@
 (emit '(import (guile)
                (only (srfi srfi-9) define-record-type)
                (ice-9 match)
+               ;; real bytevector ops (R7RS) for the binary value type
+               (only (scheme base) make-bytevector bytevector-length
+                     bytevector-u8-ref bytevector-u8-set! bytevector-copy!
+                     string->utf8)
                (hoot ffi)))
 
 ;;; 2a. SRFI-1 functions that Hoot's (guile) does not provide.
@@ -151,8 +155,23 @@
    (define (file-exists? . _) #f)
    (define (get-internal-real-time) 0)
    (define internal-time-units-per-second 1000000)
-   (define (string->utf8 s) s)
-   (define (bytevector-length s) (string-length s))))
+   ;; R6RS bytevector helpers Hoot's (scheme base) doesn't export, in terms of
+   ;; the R7RS primitives imported above.  (string->utf8 / bytevector-length /
+   ;; make-bytevector / bytevector-u8-ref/set! / bytevector-copy! are real now.)
+   (define (bytevector=? a b)
+     (and (= (bytevector-length a) (bytevector-length b))
+          (let loop ((i 0))
+            (or (= i (bytevector-length a))
+                (and (= (bytevector-u8-ref a i) (bytevector-u8-ref b i))
+                     (loop (+ i 1)))))))
+   (define (u8-list->bytevector lst)
+     (let ((bv (make-bytevector (length lst))))
+       (let loop ((i 0) (l lst))
+         (if (null? l) bv
+             (begin (bytevector-u8-set! bv i (car l)) (loop (+ i 1) (cdr l)))))))
+   (define (bytevector->u8-list bv)
+     (let loop ((i (- (bytevector-length bv) 1)) (acc '()))
+       (if (< i 0) acc (loop (- i 1) (cons (bytevector-u8-ref bv i) acc)))))))
 
 ;;; 3. The runtime (value model + dispatch + Scheme stdlib), flattened.
 (emit-all (module-body "module/elixir/runtime.scm"))

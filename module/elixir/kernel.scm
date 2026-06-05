@@ -10,7 +10,7 @@
 (define-module (elixir kernel)
   #:use-module (srfi srfi-1)
   #:use-module (ice-9 textual-ports)
-  #:use-module (rnrs bytevectors)
+  #:use-module ((rnrs bytevectors) #:select (bytevector-length string->utf8 make-bytevector u8-list->bytevector bytevector->u8-list))
   #:use-module (elixir runtime)
   #:use-module (elixir dispatch)
   #:use-module (elixir process)
@@ -28,6 +28,7 @@
   (install-io!)
   (install-file!)
   (install-system!)
+  (install-binary!)
   (install-enum!)
   (install-map!)
   (install-list!)
@@ -70,7 +71,11 @@
   (defn 'Kernel 'elem 2 (lambda (t i) (tuple-ref t i)))
   (defn 'Kernel 'tuple_size 1 (lambda (t) (tuple-size t)))
   (defn 'Kernel 'map_size 1 (lambda (m) (emap-size m)))
-  (defn 'Kernel 'byte_size 1 (lambda (s) (bytevector-length (string->utf8 s))))
+  (defn 'Kernel 'byte_size 1 (lambda (s) (binary-byte-size s)))
+  (defn 'Kernel 'bit_size 1 (lambda (s) (* 8 (binary-byte-size s))))
+  (defn 'Kernel 'binary_part 3 (lambda (b start len) (binary-part b start len)))
+  (defn 'Kernel 'binary_to_list 1 (lambda (b) (bytevector->u8-list (binary-bytes b))))
+  (defn 'Kernel 'list_to_binary 1 (lambda (l) (bytes->binary (u8-list->bytevector l))))
   (defn 'Kernel 'to_string 1 (lambda (x) (ex->display x)))
   (defn 'Kernel 'inspect 1 (lambda (x) (inspect x)))
   (defn 'Kernel 'raise 1 (lambda (x) (ex-raise x)))
@@ -119,6 +124,20 @@
     (lambda ()
       (quotient (* (get-internal-real-time) 1000000)
                 internal-time-units-per-second))))
+
+;; The Erlang `:binary` module — byte-level operations on binaries.
+(define (install-binary!)
+  (defn 'binary 'at 2 (lambda (b i) (binary-at b i)))
+  (defn 'binary 'part 3 (lambda (b pos len) (binary-part b pos len)))
+  (defn 'binary 'bin_to_list 1 (lambda (b) (bytevector->u8-list (binary-bytes b))))
+  (defn 'binary 'list_to_bin 1 (lambda (l) (bytes->binary (u8-list->bytevector l))))
+  (defn 'binary 'first 1 (lambda (b) (binary-at b 0)))
+  (defn 'binary 'last 1 (lambda (b) (binary-at b (- (binary-byte-size b) 1))))
+  (defn 'binary 'copy 1 (lambda (b) (bytes->binary (binary-bytes b))))
+  (defn 'binary 'copy 2
+    (lambda (b n)
+      (let loop ((k n) (acc (bytes->binary (make-bytevector 0))))
+        (if (<= k 0) acc (loop (- k 1) (ex-<> acc b)))))))
 
 ;;; ----------------------------------------------------------------------
 ;;; Enum

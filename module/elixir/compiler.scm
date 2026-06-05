@@ -761,6 +761,10 @@
         (g (direct-call g cargs))
         ((intrinsic-form mod fun (length args) cargs))  ; => the form, or #f
         (else `(ex-call-remote ',mod ',fun (list ,@cargs))))))
+    ;; Erlang-style module call on an atom:  :binary.at(b, i), :lists.reverse(l)
+    (('atom mod)
+     `(ex-call-remote ',mod ',fun
+                      (list ,@(map (lambda (a) (compile-expr a ctx)) args))))
     ;; Dot on a value:  map.field (no args -> field access) or
     ;; value.fun(args) (field holds a function -> call it).
     (_ (if (null? args)

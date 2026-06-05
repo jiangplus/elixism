@@ -58,13 +58,28 @@ A `pat = expr` statement scopes its bound variables over the **rest of the
 enclosing block**, so block compilation nests `let`s rather than emitting a
 flat `begin`.
 
-**Binaries** are modelled as codepoint strings, so `<<>>` patterns compile to
-string operations. A fixed integer segment consumes `size/8` codepoint-bytes
-(big-endian) at a compile-time-known offset — so `<<port::16, ver::8>>` reads 2
-then 1 bytes — and a trailing `var::binary` binds the remaining substring.
-Sub-byte sizes (`::1`, `::4`) are bit-packed MSB-first when the total is byte-aligned. The common string-prefix idiom
-`"GET " <> rest = req` compiles to a `string-prefix?` test plus a `substring`
-bind.
+**Binaries.** Elixir binaries are *byte* sequences. Elixism uses two
+interoperating representations:
+
+- a **UTF-8 Scheme string** for the common text case — `<<>>` literals/patterns
+  still compile to string operations (a fixed integer segment consumes `size/8`
+  big-endian bytes; a trailing `var::binary` binds the rest; sub-byte sizes
+  `::1`/`::4` are bit-packed MSB-first; `"GET " <> rest = req` is a
+  `string-prefix?` + `substring`);
+- a **`<bin>` record backed by a bytevector** for binaries a UTF-8 string can't
+  hold — arbitrary bytes such as `<<255, 0, 128>>` — with **O(1) byte access**
+  (important since Hoot `string-ref` is O(N)).
+
+The two are the same kind of value: `is_binary` is true for both, and they
+**compare, concatenate, and size by their bytes** (`<<104,105>> == "hi"`). The
+`:binary` module (`:binary.at`/`part`/`bin_to_list`/`list_to_bin`/`first`/`last`/
+`copy`) plus `byte_size`/`bit_size`/`binary_part`/`binary_to_list`/
+`list_to_binary` operate byte-correctly on either. Erlang-style `:mod.fun(...)`
+atom-module calls are recognized by the compiler. On the WebAssembly backend the
+bytevector ops are Hoot's real R7RS `(scheme base)` primitives, so binary
+behavior is identical on host and Wasm. *Not yet:* fully unifying strings as
+bytevectors (so `<<255>>` *literals* are byte-exact), and non-byte-aligned
+bitstring tails.
 
 ## What the Wasm backend adds
 

@@ -173,6 +173,21 @@ M.even?(10)")))
      (deftest "sub-byte pack construct" (assert-equal 85 (ev "<<x>> = <<5::4, 5::4>>\nx")))
      (deftest "sub-byte mixed with multi-byte"
        (assert-equal "{4, 5, 1500}" (ev* "<<ver::4, ihl::4, _tos::8, len::16>> = <<69, 0, 5, 220>>\n{ver, ihl, len}")))
+     ;; raw byte binaries (the :binary module) — bytes a UTF-8 string can't hold
+     (deftest "raw bytes round-trip"
+       (assert-equal "[255, 0, 128]" (ev* ":binary.bin_to_list(:binary.list_to_bin([255, 0, 128]))")))
+     (deftest "raw binary equals string by bytes"
+       (assert-equal 'true (ev ":binary.list_to_bin([104, 105]) == \"hi\"")))
+     (deftest "byte_size counts bytes not codepoints"
+       (assert-equal 3 (ev "byte_size(:binary.list_to_bin([255, 0, 128]))")))
+     (deftest ":binary.at is byte access"
+       (assert-equal 20 (ev ":binary.at(:binary.list_to_bin([10, 20, 30]), 1)")))
+     (deftest "binary_part sub-binary"
+       (assert-equal "[2, 3, 4]" (ev* ":binary.bin_to_list(binary_part(:binary.list_to_bin([1,2,3,4,5]), 1, 3))")))
+     (deftest "bit_size"
+       (assert-equal 24 (ev "bit_size(:binary.list_to_bin([1, 2, 3]))")))
+     (deftest "raw binary inspects as bytes"
+       (assert-equal "<<255, 0>>" (ev* ":binary.list_to_bin([255, 0])")))
      (deftest "string prefix match"
        (assert-equal "/x" (ev "defmodule P do\ndef path(\"GET \" <> p), do: p\nend\nP.path(\"GET /x\")")))
      (deftest "string prefix dispatch"
