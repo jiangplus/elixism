@@ -127,6 +127,49 @@
               forms)
     tbl))
 
+;; Records (Record.defrecordp): name -> list of (field . default-ast).  A record
+;; `r` is the tuple {:r, f1, f2, …}.  `r(kw)` builds it (or matches it in a
+;; pattern); see build-record-expr / build-record-pattern.
+(define *records* (make-parameter #f))
+
+(define (collect-records forms)
+  (let ((tbl (make-hash-table)))
+    (for-each
+     (lambda (f)
+       (match f
+         (('call 'defrecordp (('atom name) ('list fts #f)))
+          (hash-set! tbl name
+                     (map (lambda (ft)
+                            (match ft (('tuple (('atom fn) def)) (cons fn def))))
+                          fts)))
+         (_ #t)))
+     forms)
+    tbl))
+
+(define (record? name) (let ((t (*records*))) (and t (hash-ref t name #f))))
+
+;; the keyword pairs (field . value-ast) from a record call's args, or '()
+(define (record-kw args)
+  (match args ((('kwlist pairs)) pairs) (_ '())))
+
+;; r(kw) in expression position -> {:r, …} with given fields or their defaults
+(define (build-record-expr name args ctx)
+  (let ((fields (record? name)) (kw (record-kw args)))
+    `(make-tuple ',name
+                 ,@(map (lambda (fd)
+                          (let ((p (assq (car fd) kw)))
+                            (compile-expr (if p (cdr p) (cdr fd)) ctx)))
+                        fields))))
+
+;; r(kw) in pattern position -> match {:r, …}, binding given fields, _ elsewhere
+(define (build-record-pattern name args subj fail ctx)
+  (let* ((fields (record? name)) (kw (record-kw args)) (n (+ 1 (length fields))))
+    `(and (tuple? ,subj) (= (tuple-size ,subj) ,n) (eq? (tuple-ref ,subj 0) ',name)
+          ,@(map (lambda (fd i)
+                   (let ((p (assq (car fd) kw)))
+                     (if p (compile-pattern (cdr p) `(tuple-ref ,subj ,i) fail ctx) #t)))
+                 fields (iota (length fields) 1)))))
+
 (define (compile-module name body)
   (let* ((mod (alias->symbol name))
          (forms (match body (('block fs) fs) (_ (list body))))
@@ -134,7 +177,8 @@
          (defs (append-map expand-defaults
                            (filter (lambda (f) (eq? (car f) 'def)) forms)))
          (groups (group-defs defs)))
-    (parameterize ((*attrs* (collect-attrs forms)))
+    (parameterize ((*attrs* (collect-attrs forms))
+                   (*records* (collect-records forms)))
       `(begin
          (register-module! ',mod)
          ,@(map (lambda (s) (compile-defstruct mod s)) structs)
@@ -319,6 +363,10 @@
     (('binop "<>" _ rest) (pattern-vars rest))
     (('match a b) (append (pattern-vars a) (pattern-vars b)))
     (('unop "^" _) '())
+    ;; a record pattern r(field: p) binds the vars in its field patterns
+    (('call name args) (if (record? name)
+                           (append-map (lambda (p) (pattern-vars (cdr p))) (record-kw args))
+                           '()))
     (_ '())))
 
 ;; Returns a Scheme expression that yields #t (and set!s vars) or #f.
@@ -368,6 +416,10 @@
        `(and (string? ,subj) (>= (string-length ,subj) ,n)
              (string=? (substring ,subj 0 ,n) ,prefix)
              ,(compile-pattern rest `(substring ,subj ,n (string-length ,subj)) fail ctx))))
+    ;; a Record.defrecordp call in pattern position: r(field: p) matches the tuple
+    (('call name args) (if (record? name)
+                           (build-record-pattern name args subj fail ctx)
+                           `(ex-equal? ,subj ,(compile-expr pat ctx))))
     (_ `(ex-equal? ,subj ,(compile-expr pat ctx)))))
 
 ;; Binaries are codepoint strings.  Each fixed integer segment consumes
@@ -804,11 +856,13 @@
     (_ (compile-expr e ctx))))
 
 (define (compile-call name args ctx)
-  (let ((cargs (map (lambda (a) (compile-expr a ctx)) args))
-        (g (fn-gensym ctx name (length args))))
-    (if g
-        (direct-call g cargs)
-        `(ex-call-local ',ctx ',name (list ,@cargs)))))
+  (if (record? name)
+      (build-record-expr name args ctx)         ; Record.defrecordp constructor
+      (let ((cargs (map (lambda (a) (compile-expr a ctx)) args))
+            (g (fn-gensym ctx name (length args))))
+        (if g
+            (direct-call g cargs)
+            `(ex-call-local ',ctx ',name (list ,@cargs))))))
 
 (define (compile-remote modexpr fun args ctx)
   (match modexpr

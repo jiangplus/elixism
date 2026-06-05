@@ -39,7 +39,15 @@
 ;;; Entry point
 ;;; ----------------------------------------------------------------------
 
-(define (expand-program ast) (expand-expr ast 'Elixir))
+(define (expand-program ast)
+  (match ast
+    ;; drop top-level alias/import/require directives (they only matter inside a
+    ;; module); expand the rest.
+    (('block forms)
+     `(block ,(append-map
+               (lambda (f) (if (directive-form? f) '() (flatten-form (expand-expr f 'Elixir))))
+               forms)))
+    (_ (expand-expr ast 'Elixir))))
 
 ;;; ----------------------------------------------------------------------
 ;;; Structural walk: rewrite (quoted …) and macro calls; recurse elsewhere.
