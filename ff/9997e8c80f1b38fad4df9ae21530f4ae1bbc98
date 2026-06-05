@@ -1,0 +1,32 @@
+module/elixir/parser.scm
+  s_8e9977ffd5237f::t_ad5a9bc7dca3de 214-215,218-226
+module/elixir/eval.scm
+  s_8e9977ffd5237f::t_3477452a503a5d 116-117
+  s_8e9977ffd5237f::t_dfd00f50e45b99 127-155
+test/test-integration.scm
+  s_8e9977ffd5237f::t_1a77c32f7b7dec 325-361
+module/elixir/expand.scm
+  s_8e9977ffd5237f::t_2b5c28244a3b56 170-187
+  s_8e9977ffd5237f::t_c31eb3c343214a 145-147,149-152
+  s_8e9977ffd5237f::t_85ed899a177adc 249-261
+  s_8e9977ffd5237f::t_7fed734d75372a 58-61
+module/elixir/compiler.scm
+  s_8e9977ffd5237f::t_05c632f80b53c3 117-129,137-142
+  s_8e9977ffd5237f::t_927e4690c2316e 474-482
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "ff9997e8c80f1b38fad4df9ae21530f4ae1bbc98",
+  "prompts": {},
+  "sessions": {
+    "s_8e9977ffd5237f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa7bf6bc-f474-4925-a494-a8ea455f13a6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
