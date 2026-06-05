@@ -188,6 +188,15 @@ M.even?(10)")))
        (assert-equal 24 (ev "bit_size(:binary.list_to_bin([1, 2, 3]))")))
      (deftest "raw binary inspects as bytes"
        (assert-equal "<<255, 0>>" (ev* ":binary.list_to_bin([255, 0])")))
+     ;; Erlang stdlib subset (:erlang / :lists) for the future transpiled frontend
+     (deftest "erlang.element is 1-indexed" (assert-equal 'b (ev ":erlang.element(2, {:a, :b, :c})")))
+     (deftest "erlang.setelement" (assert-equal "{1, 99, 3}" (ev* ":erlang.setelement(2, {1, 2, 3}, 99)")))
+     (deftest "erlang.list_to_atom" (assert-equal 'def (ev ":erlang.list_to_atom(~c\"def\")")))
+     (deftest "erlang.list_to_integer" (assert-equal 258 (ev ":erlang.list_to_integer(~c\"258\")")))
+     (deftest "lists.reverse/2 appends tail" (assert-equal "[1, 2, 3, 4, 5]" (ev* ":lists.reverse([3, 2, 1], [4, 5])")))
+     (deftest "lists.keyfind" (assert-equal "{:b, 2}" (ev* ":lists.keyfind(:b, 1, [{:a, 1}, {:b, 2}])")))
+     (deftest "lists.mapfoldl" (assert-equal "{[2, 4, 6], 6}" (ev* ":lists.mapfoldl(fn x, a -> {x * 2, a + x} end, 0, [1, 2, 3])")))
+     (deftest "lists.takewhile" (assert-equal "[1, 2]" (ev* ":lists.takewhile(fn x -> x < 3 end, [1, 2, 3, 4])")))
      (deftest "string prefix match"
        (assert-equal "/x" (ev "defmodule P do\ndef path(\"GET \" <> p), do: p\nend\nP.path(\"GET /x\")")))
      (deftest "string prefix dispatch"

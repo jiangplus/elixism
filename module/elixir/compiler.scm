@@ -342,6 +342,12 @@
                             ,(compile-pattern (cdr kv) `(emap-ref ,subj ,k 'nil) fail ctx))))
                   pairs)))
     (('binary segs) (compile-binary-pattern segs subj ctx))
+    ;; `p = q` in a pattern: both sides must match the *same* subject (e.g.
+    ;; `[h | _] = whole`).  Without this it fell to the expression catch-all and
+    ;; *raised* on mismatch instead of failing the clause and falling through.
+    (('match a b)
+     `(and ,(compile-pattern a subj fail ctx)
+           ,(compile-pattern b subj fail ctx)))
     ;; string prefix match:  "GET " <> rest = request
     (('binop "<>" ('string prefix) rest)
      (let ((n (string-length prefix)))

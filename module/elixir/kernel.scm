@@ -29,6 +29,8 @@
   (install-file!)
   (install-system!)
   (install-binary!)
+  (install-erlang!)
+  (install-lists!)
   (install-enum!)
   (install-map!)
   (install-list!)
@@ -138,6 +140,60 @@
     (lambda (b n)
       (let loop ((k n) (acc (bytes->binary (make-bytevector 0))))
         (if (<= k 0) acc (loop (- k 1) (ex-<> acc b)))))))
+
+;;; ----------------------------------------------------------------------
+;;; Erlang stdlib subset (`:erlang` BIFs and `:lists`) -- the surface the
+;;; Elixir tokenizer/parser use, so a transpiled frontend can run on Elixism.
+;;; Erlang semantics are preserved exactly (1-indexed tuples; reverse/2 appends
+;;; a tail; charlists for list_to_atom/integer; etc.).
+;;; ----------------------------------------------------------------------
+
+(define (install-erlang!)
+  (defn 'erlang 'hd 1 (lambda (l) (car l)))
+  (defn 'erlang 'tl 1 (lambda (l) (cdr l)))
+  (defn 'erlang 'length 1 (lambda (l) (length l)))
+  (defn 'erlang 'is_list 1 (lambda (x) (->ex-bool (list? x))))
+  (defn 'erlang 'is_atom 1 (lambda (x) (->ex-bool (ex-atom? x))))
+  (defn 'erlang 'is_integer 1 (lambda (x) (->ex-bool (ex-integer? x))))
+  (defn 'erlang 'is_binary 1 (lambda (x) (->ex-bool (ex-binary? x))))
+  (defn 'erlang 'element 2 (lambda (n t) (tuple-ref t (- n 1))))      ; 1-indexed
+  (defn 'erlang 'setelement 3
+    (lambda (n t v)
+      (let ((l (tuple->list t)))
+        (list->tuple (append (take l (- n 1)) (list v) (drop l n))))))
+  (defn 'erlang 'list_to_atom 1 (lambda (cl) (string->symbol (charlist->string cl))))
+  (defn 'erlang 'atom_to_list 1 (lambda (a) (string->charlist (symbol->string a))))
+  (defn 'erlang 'list_to_integer 1 (lambda (cl) (string->number (charlist->string cl))))
+  (defn 'erlang 'integer_to_list 1 (lambda (n) (string->charlist (number->string n)))))
+
+(define (install-lists!)
+  (defn 'lists 'reverse 1 (lambda (l) (reverse l)))
+  (defn 'lists 'reverse 2 (lambda (l tail) (append (reverse l) tail)))  ; reverse + append
+  (defn 'lists 'member 2 (lambda (x l) (->ex-bool (and (member x l ex-equal?) #t))))
+  (defn 'lists 'last 1 (lambda (l) (last l)))
+  (defn 'lists 'foldl 3 (lambda (f acc l) (fold (lambda (x a) (f x a)) acc l)))
+  (defn 'lists 'nthtail 2 (lambda (n l) (list-tail l n)))
+  (defn 'lists 'takewhile 2 (lambda (pred l) (take-while (lambda (x) (ex-truthy? (pred x))) l)))
+  (defn 'lists 'droplast 1 (lambda (l) (drop-right l 1)))
+  (defn 'lists 'delete 2
+    (lambda (x l)
+      (let loop ((l l) (out '()))                       ; drop first occurrence
+        (cond ((null? l) (reverse out))
+              ((ex-equal? (car l) x) (append (reverse out) (cdr l)))
+              (else (loop (cdr l) (cons (car l) out)))))))
+  (defn 'lists 'keyfind 3
+    (lambda (key n l)                                   ; first tuple with Nth elem = key
+      (let loop ((l l))
+        (cond ((null? l) 'false)
+              ((and (tuple? (car l)) (ex-equal? (tuple-ref (car l) (- n 1)) key)) (car l))
+              (else (loop (cdr l)))))))
+  (defn 'lists 'mapfoldl 3
+    (lambda (f acc l)                                   ; {MappedList, Acc}; F(El,Acc)->{El1,Acc1}
+      (let loop ((l l) (acc acc) (out '()))
+        (if (null? l)
+            (make-tuple (reverse out) acc)
+            (let ((r (f (car l) acc)))
+              (loop (cdr l) (tuple-ref r 1) (cons (tuple-ref r 0) out))))))))
 
 ;;; ----------------------------------------------------------------------
 ;;; Enum
@@ -309,6 +365,8 @@
   (defn 'List 'wrap 1 (lambda (x) (cond ((list? x) x) ((eq? x 'nil) '()) (else (list x)))))
   (defn 'List 'duplicate 2 (lambda (x n) (make-list n x)))
   (defn 'List 'to_tuple 1 (lambda (l) (list->tuple l)))
+  (defn 'List 'to_atom 1 (lambda (cl) (string->symbol (charlist->string cl))))
+  (defn 'List 'to_integer 1 (lambda (cl) (string->number (charlist->string cl))))
   (defn 'List 'insert_at 3 (lambda (l i v) (list-insert l (if (< i 0) (+ (length l) 1 i) i) v)))
   (defn 'List 'delete_at 2 (lambda (l i) (list-delete-at l i)))
   (defn 'List 'delete 2 (lambda (l v) (delete-first-eq l v)))
