@@ -152,9 +152,10 @@ tokenizer emits tokens with location; the canonical dump drops it).
   and the newline EOL machinery (`eol`/`tokenize_eol`, operator folding via
   `add_token_with_eol`, comma/eol absorption, `\`-continuation). Two gates diff
   kind+value against Elixir's own `:elixir_tokenizer`: `check_ops.sh`
-  (single-line operators/delimiters/numbers — *51 lines identical*) and
-  `check_multiline.sh` (eol/folding/absorption across lines — *41 tokens
-  identical*, e.g. `*` at line start folds the eol, `+` does not). Terminator
+  (single-line operators/delimiters/numbers + **operator-atoms** `:+ :++ :<>
+  :|> :<<>> :%{} :{} :..// :::` — *59 lines identical*) and `check_multiline.sh`
+  (eol/folding/absorption across lines — *41 tokens identical*, e.g. `*` at line
+  start folds the eol, `+` does not). Terminator
   *validation*, the invalid-char number branch, and warnings are stubbed/deferred
   (they don't change the happy-path stream).
 - **Next stages:** (3) identifiers/atoms/keywords + `handle_dot` + the

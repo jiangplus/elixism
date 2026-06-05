@@ -82,6 +82,50 @@ defmodule ETok do
     tokenize(rest, line, column + 2 + length, scope, [{:int, {line, column, number}, original} | tokens])
   end
 
+  # ## Operator atoms — `:<op>` becomes {atom, _, :<op>}.  Must precede the
+  # operators (and the `::` type_op) so `:==` is the atom `:==`, not `:` + `==`.
+  # The kw_identifier operator forms (`.:`, `<<>>:`, …) need the deferred `.`
+  # path and are left to stage 3.  Longer literals come first.
+  defp tokenize([?:, ?<, ?<, ?>, ?> | rest], line, column, scope, tokens) do
+    tokenize(rest, line, column + 5, scope, [{:atom, {line, column, nil}, List.to_atom([?<, ?<, ?>, ?>])} | tokens])
+  end
+
+  defp tokenize([?:, ?%, ?{, ?} | rest], line, column, scope, tokens) do
+    tokenize(rest, line, column + 4, scope, [{:atom, {line, column, nil}, List.to_atom([?%, ?{, ?}])} | tokens])
+  end
+
+  defp tokenize([?:, ?%| rest], line, column, scope, tokens) do
+    tokenize(rest, line, column + 2, scope, [{:atom, {line, column, nil}, List.to_atom([?%])} | tokens])
+  end
+
+  defp tokenize([?:, ?{, ?} | rest], line, column, scope, tokens) do
+    tokenize(rest, line, column + 3, scope, [{:atom, {line, column, nil}, List.to_atom([?{, ?}])} | tokens])
+  end
+
+  defp tokenize([?:, ?., ?., ?/, ?/ | rest], line, column, scope, tokens) do
+    tokenize(rest, line, column + 5, scope, [{:atom, {line, column, nil}, List.to_atom([?., ?., ?/, ?/])} | tokens])
+  end
+
+  # `:` + 3 operator chars
+  defp tokenize([?:, t1, t2, t3 | rest], line, column, scope, tokens) when (t1 == ?~ and t2 == ?~ and t3 == ?~) or (t1 == ?= and t2 == ?= and t3 == ?=) or (t1 == ?! and t2 == ?= and t3 == ?=) or (t1 == ?& and t2 == ?& and t3 == ?&) or (t1 == ?| and t2 == ?| and t3 == ?|) or (t1 == ?^ and t2 == ?^ and t3 == ?^) or (t1 == ?+ and t2 == ?+ and t3 == ?+) or (t1 == ?- and t2 == ?- and t3 == ?-) or (t1 == ?. and t2 == ?. and t3 == ?.) or (t1 == ?< and t2 == ?< and t3 == ?<) or (t1 == ?> and t2 == ?> and t3 == ?>) or (t1 == ?~ and t2 == ?> and t3 == ?>) or (t1 == ?< and t2 == ?< and t3 == ?~) or (t1 == ?< and t2 == ?~ and t3 == ?>) or (t1 == ?< and t2 == ?| and t3 == ?>) do
+    tokenize(rest, line, column + 4, scope, [{:atom, {line, column, nil}, List.to_atom([t1, t2, t3])} | tokens])
+  end
+
+  # `:::` → the atom `::` (upstream warns; warning dropped)
+  defp tokenize([?:, ?:, ?: | rest], line, column, scope, tokens) do
+    tokenize(rest, line, column + 3, scope, [{:atom, {line, column, nil}, List.to_atom([?:, ?:])} | tokens])
+  end
+
+  # `:` + 2 operator chars
+  defp tokenize([?:, t1, t2 | rest], line, column, scope, tokens) when (t1 == ?= and t2 == ?=) or (t1 == ?= and t2 == ?~) or (t1 == ?! and t2 == ?=) or (t1 == ?< and t2 == ?=) or (t1 == ?> and t2 == ?=) or (t1 == ?& and t2 == ?&) or (t1 == ?| and t2 == ?|) or (t1 == ?| and t2 == ?>) or (t1 == ?~ and t2 == ?>) or (t1 == ?< and t2 == ?~) or (t1 == ?< and t2 == ?-) or (t1 == ?\\ and t2 == ?\\) or (t1 == ?+ and t2 == ?+) or (t1 == ?- and t2 == ?-) or (t1 == ?< and t2 == ?>) or (t1 == ?* and t2 == ?*) or (t1 == ?- and t2 == ?>) or (t1 == ?. and t2 == ?.) do
+    tokenize(rest, line, column + 3, scope, [{:atom, {line, column, nil}, List.to_atom([t1, t2])} | tokens])
+  end
+
+  # `:` + 1 operator char (incl. `:.`)
+  defp tokenize([?:, t | rest], line, column, scope, tokens) when t == ?@ or t == ?! or t == ?^ or t == ?& or t == ?+ or t == ?- or t == ?* or t == ?/ or t == ?< or t == ?> or t == ?= or t == ?| or t == ?. do
+    tokenize(rest, line, column + 2, scope, [{:atom, {line, column, nil}, List.to_atom([t])} | tokens])
+  end
+
   # ## Stand-alone: =>
   defp tokenize([?=, ?> | rest], line, column, scope, tokens) do
     token = {:assoc_op, {line, column, previous_was_eol(tokens)}, List.to_atom([?=, ?>])}
