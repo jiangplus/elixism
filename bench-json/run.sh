@@ -33,13 +33,24 @@ if [ ! -d "$ELIXISM/jason/_build" ]; then
   echo "==> Compiling Jason ..."
   ( cd "$ELIXISM/jason" && mix deps.get && MIX_ENV=prod mix compile )
 fi
+# Poison — a second native baseline (https://github.com/devinus/poison).
+POISON_DIR="$ELIXISM/../poison"
+if [ ! -d "$POISON_DIR" ]; then
+  echo "==> Cloning Poison into $POISON_DIR ..."
+  git clone --depth 1 https://github.com/devinus/poison.git "$POISON_DIR"
+fi
+if [ ! -d "$POISON_DIR/_build" ]; then
+  echo "==> Compiling Poison ..."
+  ( cd "$POISON_DIR" && MIX_ENV=prod mix deps.get && MIX_ENV=prod mix compile )
+fi
 
 JASON_TSV=$(mktemp)
+POISON_TSV=$(mktemp)
 ELIXISM_TSV=$(mktemp)
 WASM_TSV=$(mktemp)
-trap 'rm -f "$JASON_TSV" "$ELIXISM_TSV" "$WASM_TSV" /tmp/elixism_bench.ex' EXIT
+trap 'rm -f "$JASON_TSV" "$POISON_TSV" "$ELIXISM_TSV" "$WASM_TSV" /tmp/elixism_bench.ex' EXIT
 
-# ---- 1. Jason side (BEAM): one mix run over all files ------------------------
+# ---- 1. Jason + Poison side (BEAM): one mix run each over all files ----------
 echo "==> Jason (Elixir/BEAM): decoding ..."
 jason_files=""
 for entry in $SET; do
@@ -48,6 +59,14 @@ for entry in $SET; do
 done
 ( cd "$ELIXISM/jason" && MIX_ENV=prod mix run "$HERE/jason_bench.exs" 100 $jason_files ) \
   | grep '^JASON' > "$JASON_TSV"
+
+echo "==> Poison (Elixir/BEAM): decoding ..."
+poison_files=""
+for entry in $SET; do
+  poison_files="$poison_files $ELIXISM/$DATA_REL/${entry%:*}"
+done
+( cd "$POISON_DIR" && MIX_ENV=prod mix run "$HERE/poison_bench.exs" 100 $poison_files ) \
+  | grep '^POISON' > "$POISON_TSV"
 
 # ---- 2. Elixism side (Guile): one exc run per file --------------------------
 echo "==> Elixism (Elixir subset on Guile): parsing ..."
@@ -83,4 +102,4 @@ else
 fi
 
 # ---- 4. Report --------------------------------------------------------------
-python3 "$HERE/report.py" "$JASON_TSV" "$ELIXISM_TSV" "$WASM_TSV"
+python3 "$HERE/report.py" "$JASON_TSV" "$ELIXISM_TSV" "$WASM_TSV" "$POISON_TSV"
