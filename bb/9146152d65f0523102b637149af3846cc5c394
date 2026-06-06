@@ -1,0 +1,24 @@
+bench-json/run.sh
+  s_8e9977ffd5237f::t_68c602a9a1741e 105
+  s_8e9977ffd5237f::t_27787208d829a6 36-45,48,51,53,63-69
+bench-json/poison_bench.exs
+  s_8e9977ffd5237f::t_0500b8bddb9089 1-30
+bench-json/report.py
+  s_8e9977ffd5237f::t_7b5bc14e0a2302 2,4,6-8,15-16,31,38-45,47-48,51,56-57,64,67,69,71,76,79-83,85-90
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "bb9146152d65f0523102b637149af3846cc5c394",
+  "prompts": {},
+  "sessions": {
+    "s_8e9977ffd5237f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa7bf6bc-f474-4925-a494-a8ea455f13a6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
