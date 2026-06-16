@@ -47,7 +47,87 @@
   (install-macro!)
   (install-module-attrs!)
   (install-introspection!)
+  (install-mapset!)
+  (install-equeue!)
+  (install-stream!)
+  (install-ets!)
   'ok)
+
+;;; MapSet — a set as %{__struct__: MapSet, map: %{elem => []}}.  Enumerable /
+;;; Collectable hooks live in runtime (ex-enumerate / ex-into).
+(define (ms-wrap m) (alist->emap (list (cons '__struct__ 'MapSet) (cons 'map m))))
+(define (ms-map ms) (emap-ref ms 'map (alist->emap '())))
+(define (ms-of-list lst) (ms-wrap (fold (lambda (e m) (emap-put m e '())) (alist->emap '()) lst)))
+(define (install-mapset!)
+  (defn 'MapSet 'new 0 (lambda () (ms-of-list '())))
+  (defn 'MapSet 'new 1 (lambda (enum) (ms-of-list (ex-enumerate enum))))
+  (defn 'MapSet 'new 2
+    (lambda (enum f) (ms-of-list (map (lambda (x) (ex-apply f (list x))) (ex-enumerate enum)))))
+  (defn 'MapSet 'put 2 (lambda (ms e) (ms-wrap (emap-put (ms-map ms) e '()))))
+  (defn 'MapSet 'delete 2 (lambda (ms e) (ms-wrap (emap-delete (ms-map ms) e))))
+  (defn 'MapSet 'member? 2 (lambda (ms e) (->ex-bool (emap-has-key? (ms-map ms) e))))
+  (defn 'MapSet 'size 1 (lambda (ms) (emap-size (ms-map ms))))
+  (defn 'MapSet 'to_list 1 (lambda (ms) (emap-keys (ms-map ms))))
+  (defn 'MapSet 'union 2
+    (lambda (a b) (ms-of-list (append (mapset-elements a) (mapset-elements b)))))
+  (defn 'MapSet 'intersection 2
+    (lambda (a b) (let ((bm (ms-map b)))
+                    (ms-of-list (filter (lambda (e) (emap-has-key? bm e)) (mapset-elements a))))))
+  (defn 'MapSet 'difference 2
+    (lambda (a b) (let ((bm (ms-map b)))
+                    (ms-of-list (filter (lambda (e) (not (emap-has-key? bm e))) (mapset-elements a))))))
+  (defn 'MapSet 'subset? 2
+    (lambda (a b) (let ((bm (ms-map b)))
+                    (->ex-bool (every (lambda (e) (emap-has-key? bm e)) (mapset-elements a))))))
+  (defn 'MapSet 'equal? 2
+    (lambda (a b) (let ((am (ms-map a)) (bm (ms-map b)))
+                    (->ex-bool (and (= (emap-size am) (emap-size bm))
+                                    (every (lambda (e) (emap-has-key? bm e)) (emap-keys am))))))))
+
+;;; Erlang :ets — minimal in-memory table (a boxed hashtable).  Only enough for
+;;; libgraph's k-core code path to compile/run; not a faithful ETS.
+(define (install-ets!)
+  (defn 'ets 'new 2 (lambda (_name _opts) (make-hash-table)))
+  (defn 'ets 'insert 2
+    (lambda (t obj) (hash-set! t (if (tuple? obj) (tuple-ref obj 0) obj) obj) 'true))
+  (defn 'ets 'lookup 2 (lambda (t k) (let ((v (hash-ref t k #f))) (if v (list v) '()))))
+  (defn 'ets 'delete 2 (lambda (t k) (hash-remove! t k) 'true))
+  (defn 'ets 'member 2 (lambda (t k) (->ex-bool (and (hash-ref t k #f) #t))))
+  (defn 'ets 'tab2list 1 (lambda (t) (hash-map->list (lambda (_k v) v) t)))
+  (defn 'ets 'first 1 (lambda (t) (let ((ks (hash-map->list (lambda (k _v) k) t)))
+                                    (if (null? ks) '|$end_of_table| (car ks))))))
+
+;;; Erlang :queue — a FIFO as the classic {rear, front} two-list pair.
+(define (install-equeue!)
+  (defn 'queue 'new 0 (lambda () (make-tuple '() '())))
+  (defn 'queue 'in 2
+    (lambda (x q) (make-tuple (cons x (tuple-ref q 0)) (tuple-ref q 1))))
+  (defn 'queue 'out 1
+    (lambda (q)
+      (let ((rear (tuple-ref q 0)) (front (tuple-ref q 1)))
+        (if (null? front)
+            (if (null? rear)
+                (make-tuple 'empty q)
+                (let ((f (reverse rear)))
+                  (make-tuple (make-tuple 'value (car f)) (make-tuple '() (cdr f)))))
+            (make-tuple (make-tuple 'value (car front))
+                        (make-tuple rear (cdr front)))))))
+  (defn 'queue 'to_list 1
+    (lambda (q) (append (reverse (tuple-ref q 0)) (tuple-ref q 1))))
+  (defn 'queue 'is_empty 1
+    (lambda (q) (->ex-bool (and (null? (tuple-ref q 0)) (null? (tuple-ref q 1)))))))
+
+;;; Stream — eager implementations (no laziness).  Sufficient for finite
+;;; pipelines that are immediately consumed by Enum, as libgraph does.
+(define (install-stream!)
+  (defn 'Stream 'map 2
+    (lambda (e f) (map (lambda (x) (ex-apply f (list x))) (ex-enumerate e))))
+  (defn 'Stream 'filter 2
+    (lambda (e f) (filter (lambda (x) (ex-truthy? (ex-apply f (list x)))) (ex-enumerate e))))
+  (defn 'Stream 'reject 2
+    (lambda (e f) (filter (lambda (x) (not (ex-truthy? (ex-apply f (list x))))) (ex-enumerate e))))
+  (defn 'Stream 'flat_map 2
+    (lambda (e f) (append-map (lambda (x) (ex-enumerate (ex-apply f (list x)))) (ex-enumerate e)))))
 
 ;;; Introspection / reflection — Module name helpers, apply, exported checks.
 (define (install-introspection!)
@@ -293,9 +373,25 @@
   (defn 'erlang 'list_to_atom 1 (lambda (cl) (string->symbol (charlist->string cl))))
   (defn 'erlang 'atom_to_list 1 (lambda (a) (string->charlist (symbol->string a))))
   (defn 'erlang 'list_to_integer 1 (lambda (cl) (string->number (charlist->string cl))))
-  (defn 'erlang 'integer_to_list 1 (lambda (n) (string->charlist (number->string n)))))
+  (defn 'erlang 'integer_to_list 1 (lambda (n) (string->charlist (number->string n))))
+  (defn 'erlang 'tuple_size 1 (lambda (t) (tuple-size t)))
+  (defn 'erlang 'byte_size 1 (lambda (s) (if (string? s) (string-length s) 0)))
+  (defn 'erlang 'system_info 1 (lambda (_k) 8))   ; wordsize stand-in
+  ;; phash2: a deterministic term hash in [0, range).  Need not match BEAM's
+  ;; exact algorithm — benchmarks use order-invariant metrics — only be a stable
+  ;; near-injective map for the vertex terms used.
+  (defn 'erlang 'phash2 1 (lambda (term) (ex-term-hash term 4294967296)))
+  (defn 'erlang 'phash2 2 (lambda (term range) (ex-term-hash term range))))
+
+;; A structural, deterministic hash.  Integers map to themselves (mod range) so
+;; integer-keyed graphs get collision-free ids; other terms use Guile's hash.
+(define (ex-term-hash term range)
+  (cond ((and (integer? term) (exact? term)) (modulo (abs term) range))
+        (else (modulo (hash term range) range))))
 
 (define (install-lists!)
+  (defn 'lists 'append 1 (lambda (ls) (apply append ls)))   ; concat a list of lists
+  (defn 'lists 'append 2 (lambda (a b) (append a b)))
   (defn 'lists 'reverse 1 (lambda (l) (reverse l)))
   (defn 'lists 'reverse 2 (lambda (l tail) (append (reverse l) tail)))  ; reverse + append
   (defn 'lists 'member 2 (lambda (x l) (->ex-bool (and (member x l ex-equal?) #t))))
@@ -328,7 +424,9 @@
 ;;; Enum
 ;;; ----------------------------------------------------------------------
 
-(define (as-list coll) (if (list? coll) coll (error "Enumerable expected" coll)))
+;; Coerce any Enumerable to a list: maps -> {k,v} pairs, MapSets -> elements,
+;; strings -> graphemes (via ex-enumerate), lists unchanged.
+(define (as-list coll) (if (list? coll) coll (ex-enumerate coll)))
 
 (define (install-enum!)
   (defn 'Enum 'map 2 (lambda (c f) (map (lambda (x) (f x)) (as-list c))))

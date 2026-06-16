@@ -150,11 +150,14 @@
 
 (define (and=> v proc) (and v (proc v)))
 
-;; Capture: &Mod.fun/arity -> a Scheme procedure.
+;; Capture: &Mod.fun/arity -> a Scheme procedure.  If the target isn't defined
+;; yet (a forward reference, e.g. a capture in a defstruct default that names a
+;; module defined later in the program), return a closure that resolves at call
+;; time — matching Elixir, where a capture is only required to exist when called.
 (define (ex-fun-ref mod name arity)
-  (let ((p (or (lookup-function mod name arity)
-               (lookup-function 'Kernel name arity))))
-    (or p (ex-undefined mod name arity))))
+  (or (lookup-function mod name arity)
+      (lookup-function 'Kernel name arity)
+      (lambda args (ex-call-remote mod name args))))
 
 ;;; --- error helpers ----------------------------------------------------
 

@@ -117,6 +117,10 @@
     (('alias parts) (string->symbol (string-join (map symbol->string parts) ".")))
     (_ (error "compiler: module name must be an alias" node))))
 
+;; A struct module name, resolving %__MODULE__{} to the lexical module `ctx`.
+(define (struct-mod->symbol node ctx)
+  (match node (('var '__MODULE__) ctx) (_ (alias->symbol node))))
+
 ;; Module attributes: a compile-time name->value-AST table for the module being
 ;; compiled.  `@name value` records the value; `@name` reads inline that value
 ;; (Elixir's compile-time-constant semantics).  Doc/impl/spec attributes are
@@ -258,24 +262,27 @@
 ;; Default arguments: a def with `p \\ default` params expands into one def
 ;; per arity, the lower ones delegating to the full one with defaults filled.
 ;; (Default args are assumed to be on simple-variable params, as is idiomatic.)
+;; A #f body marks a function *head* (`def f(a, b \\ 1)` with no `do`): it only
+;; declares defaults; the real bodies come from the following clauses.  Such a
+;; head emits the lower-arity delegating clauses but NOT a full-arity clause.
 (define (expand-defaults def)
   (match def
     (('def kind name params guard body)
      (let ((parts (map split-default params)))   ; list of (pattern . default|#f)
-       (if (not (any cdr parts))
-           (list def)                              ; no defaults: unchanged
-           (let* ((n (length params))
-                  (required (length (take-while (lambda (p) (not (cdr p))) parts))))
-             (map (lambda (k)
-                    (if (= k n)
-                        `(def ,kind ,name ,(map car parts) ,guard ,body)
-                        (let ((callargs
-                               (append (map (lambda (p) (car p)) (take parts k))
-                                       (map cdr (drop parts k)))))
-                          `(def ,kind ,name ,(map car (take parts k)) ,guard
-                                (call ,name ,callargs)))))
-                  (iota (+ (- n required) 1) required)))))
-       )))
+       (cond
+        ((not (any cdr parts)) (if body (list def) '()))   ; head w/o defaults: drop
+        (else
+         (let* ((n (length params))
+                (required (length (take-while (lambda (p) (not (cdr p))) parts))))
+           (filter-map
+            (lambda (k)
+              (cond
+               ((< k n)
+                (let ((callargs (append (map car (take parts k)) (map cdr (drop parts k)))))
+                  `(def ,kind ,name ,(map car (take parts k)) ,guard (call ,name ,callargs))))
+               (body `(def ,kind ,name ,(map car parts) ,guard ,body))
+               (else #f)))                          ; head: real body is elsewhere
+            (iota (+ (- n required) 1) required)))))))))
 
 (define (split-default p)
   (match p
@@ -403,7 +410,7 @@
                   pairs)))
     (('struct mod pairs)
      `(and (emap? ,subj)
-           (eq? (emap-ref ,subj '__struct__ #f) ',(alias->symbol mod))
+           (eq? (emap-ref ,subj '__struct__ #f) ',(struct-mod->symbol mod ctx))
            ,@(map (lambda (kv)
                     (let ((k (compile-expr (car kv) ctx)))
                       `(and (emap-has-key? ,subj ,k)
@@ -598,7 +605,7 @@
                                            ,(compile-expr (cdr kv) ctx)))
                                   pairs))))
     (('struct mod pairs)
-     `(ex-make-struct ',(alias->symbol mod)
+     `(ex-make-struct ',(struct-mod->symbol mod ctx)
                       (list ,@(map (lambda (kv)
                                      `(cons ,(compile-expr (car kv) ctx)
                                             ,(compile-expr (cdr kv) ctx)))
@@ -677,8 +684,9 @@
                 `(lambda (,p)
                    (if (and (tuple? ,p) (= (tuple-size ,p) 2) (eq? (tuple-ref ,p 0) 'throw))
                        ,(if (pair? catch-cls)
-                            `(let ((,tv (tuple-ref ,p 1)))
-                               ,(compile-match-clauses (list tv) catch-cls ctx `(ex-raise ,p)))
+                            (let ((kv (gensym "kind")))
+                              `(let ((,kv (tuple-ref ,p 0)) (,tv (tuple-ref ,p 1)))
+                                 ,(compile-catch-clauses kv tv catch-cls ctx `(ex-raise ,p))))
                             `(ex-raise ,p))
                        ,(if (pair? rescue-cls)
                             (compile-match-clauses (list p) rescue-cls ctx `(ex-raise ,p))
@@ -832,6 +840,27 @@
                        ,(wrap (compile-expr body ctx))
                        (,next))
                   (map cons pats subjvars)))))))))
+
+;; catch clauses: a 1-pattern clause matches the thrown value; a 2-pattern
+;; clause `kind, value ->` matches the throw kind and value.
+(define (compile-catch-clauses kindv valv clauses ctx fail)
+  (if (null? clauses)
+      fail
+      (match (car clauses)
+        (('clause pats guard body)
+         (let* ((rest (compile-catch-clauses kindv valv (cdr clauses) ctx fail))
+                (next (gensym "next"))
+                (subjs (if (= (length pats) 2) (list kindv valv) (list valv)))
+                (vars (delete-duplicates (append-map pattern-vars pats))))
+           `(let ((,next (lambda () ,rest)))
+              (let ,(map (lambda (v) `(,(mangle v) (if #f #f))) vars)
+                ,(fold-right
+                  (lambda (pv acc)
+                    `(if ,(compile-pattern (car pv) (cdr pv) `(,next) ctx) ,acc (,next)))
+                  `(if ,(if guard `(ex-truthy? ,(compile-expr guard ctx)) #t)
+                       ,(compile-expr body ctx)
+                       (,next))
+                  (map cons pats subjs)))))))))
 
 (define (compile-cond clauses ctx)
   (if (null? clauses)

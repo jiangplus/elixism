@@ -493,7 +493,16 @@
           (let ((tail (parse-expr c 0)))
             (skip-newlines! c) (expect! c 'rbracket)
             `(list ,(reverse (cons e acc)) ,tail)))
-         ((at? c 'comma) (advance! c) (skip-newlines! c) (loop (cons e acc)))
+         ((at? c 'comma)
+          (advance! c) (skip-newlines! c)
+          ;; a list may end with trailing keyword pairs: [:set, keypos: 1]
+          (if (at? c 'kwident)
+              (let ((kw (parse-kwlist c 'rbracket)))
+                (expect! c 'rbracket)
+                `(list ,(append (reverse (cons e acc))
+                                (map (lambda (p) `(tuple ((atom ,(car p)) ,(cdr p)))) (cadr kw)))
+                       #f))
+              (loop (cons e acc))))
          (else (expect! c 'rbracket) `(list ,(reverse (cons e acc)) #f))))))))
 
 (define (parse-tuple c)
@@ -509,8 +518,9 @@
 (define (parse-map c)
   (expect! c 'percent)
   (skip-newlines! c)
-  (if (at? c 'alias)
-      (let ((mod (parse-alias c)))
+  (if (or (at? c 'alias) (at-ident? c '__MODULE__))
+      (let ((mod (if (at? c 'alias) (parse-alias c)
+                     (begin (advance! c) '(var __MODULE__)))))
         (skip-newlines! c)
         (match (parse-brace c)
           (('pairs ps) `(struct ,mod ,ps))
@@ -683,19 +693,58 @@
         `(unquote-name ,(car (parse-paren-args c)))
         (token-value tok))))
 
+;; After a `)`, a newline before `when`/`do` is a continuation (multi-line
+;; heads): consume the newlines only when one of those keywords follows.
+(define (skip-nl-before-when-do! c)
+  (when (at? c 'newline)
+    (let ((v (cur-vec c)))
+      (let scan ((i (cur-pos c)))
+        (cond
+         ((>= i (vector-length v)) #f)
+         ((eq? (token-type (vector-ref v i)) 'newline) (scan (+ i 1)))
+         ((let ((t (vector-ref v i)))
+            (and (eq? (token-type t) 'ident) (memq (token-value t) '(when do))))
+          (set-pos! c i))
+         (else #f))))))
+
 (define (parse-def c kind)
   (let* ((name (parse-def-name c))
          (params (if (at? c 'lparen) (parse-paren-args c) '())))
+    (skip-nl-before-when-do! c)
     (let-values (((guard rest) (parse-optional-guard c)))
+      (skip-nl-before-when-do! c)
       (cond
        ((at-ident? c 'do)
-        (let ((blk (parse-do-block c)))
-          `(def ,kind ,name ,params ,guard ,(section blk 'do))))
+        `(def ,kind ,name ,params ,guard ,(parse-def-do c)))
        ((at? c 'comma)
         (advance! c)
         (let ((blk (parse-kwlist c 'eof)))
           `(def ,kind ,name ,params ,guard ,(section (cadr blk) 'do))))
-       (else `(def ,kind ,name ,params ,guard (atom nil)))))))
+       ;; no body at all: a function head — only declares default args for the
+       ;; clauses that follow.  #f body distinguishes it from `def f, do: nil`.
+       (else `(def ,kind ,name ,params ,guard #f))))))
+
+;; def body: `do BODY end`, or the implicit-try form `do BODY rescue/catch/
+;; after/else … end` which wraps BODY in a try.
+(define (def-section-end? c)
+  (or (at-ident? c 'end) (at-ident? c 'rescue) (at-ident? c 'catch)
+      (at-ident? c 'after) (at-ident? c 'else)))
+
+(define (parse-def-do c)
+  (expect-ident! c 'do)
+  (let ((body (mk-block (parse-statements c def-section-end?))))
+    (if (at-ident? c 'end)
+        (begin (advance! c) body)
+        (let loop ((rescue-cls '()) (catch-cls '()) (else-cls '()) (after-body #f))
+          (skip-newlines! c)
+          (cond
+           ((at-ident? c 'end) (advance! c)
+            `(try ,body ,rescue-cls ,catch-cls ,else-cls ,after-body))
+           ((at-ident? c 'rescue) (advance! c) (loop (parse-rescue-clauses c) catch-cls else-cls after-body))
+           ((at-ident? c 'catch)  (advance! c) (loop rescue-cls (parse-rescue-clauses c) else-cls after-body))
+           ((at-ident? c 'else)   (advance! c) (loop rescue-cls catch-cls (parse-rescue-clauses c) after-body))
+           ((at-ident? c 'after)  (advance! c) (loop rescue-cls catch-cls else-cls (mk-block (parse-statements c def-section-end?))))
+           (else (error "elixir parser: bad def section at line" (token-line (peek c)))))))))
 
 ;; quote do … end  ->  (quoted BODY).  The expansion phase (elixir expand)
 ;; rewrites this into ordinary AST that builds the {name, meta, args} form.
@@ -743,7 +792,7 @@
   (if (at-op? c "->") '()
       (if (at-ident? c 'when) '()
           (let loop ((acc '()))
-            (let ((p (parse-expr c 106)))   ; below when/->
+            (let ((p (parse-expr c 100)))   ; incl. `=` match; when/-> aren't binops
               (cond
                ((at? c 'comma) (advance! c) (skip-newlines! c) (loop (cons p acc)))
                (else (reverse (cons p acc)))))))))
@@ -855,10 +904,13 @@
     (let ((blk (parse-do-block c)))
       `(for ,quals () ,(section blk 'do))))
    (else
-    (let ((kw (cadr (parse-kwlist c 'eof))))
-      `(for ,quals
-            ,(filter (lambda (p) (not (eq? (car p) 'do))) kw)
-            ,(section kw 'do))))))
+    ;; leading options (into:, uniq:, …) may be followed by a `do…end` block
+    ;; (`for x <- l, into: %{} do … end`) or carry the body as `do:`.
+    (let* ((kw (cadr (parse-kwlist c 'do)))
+           (opts (filter (lambda (p) (not (eq? (car p) 'do))) kw)))
+      (if (at-ident? c 'do)
+          `(for ,quals ,opts ,(section (parse-do-block c) 'do))
+          `(for ,quals ,opts ,(section kw 'do)))))))
 
 ;;; --- with ---------------------------------------------------------------
 ;; with pat <- expr, pat2 <- expr2, do: body [, else: clauses]

@@ -31,7 +31,7 @@
             ;; maps
             make-emap emap? emap-ref emap-put emap-cons emap-has-key? emap->alist
             emap-size emap-keys emap-values alist->emap emap-delete
-            ex-map-update ex-get-field
+            ex-map-update ex-get-field mapset? mapset-elements
             ;; booleans / truthiness
             ex-true ex-false ex-nil ex-truthy? ->ex-bool ex-not
             ;; equality / compare
@@ -541,8 +541,12 @@
 
 ;; Turn an enumerable into a Scheme list of its elements (for comprehensions
 ;; and Enum).  Maps enumerate as {key, value} tuples.
+(define (mapset? v) (and (emap? v) (eq? (emap-ref v '__struct__ #f) 'MapSet)))
+(define (mapset-elements v) (emap-keys (emap-ref v 'map (alist->emap '()))))
+
 (define (ex-enumerate v)
-  (cond ((emap? v) (map (lambda (kv) (make-tuple (car kv) (cdr kv))) (emap-alist v)))
+  (cond ((mapset? v) (mapset-elements v))   ; a MapSet enumerates its elements
+        ((emap? v) (map (lambda (kv) (make-tuple (car kv) (cdr kv))) (emap-alist v)))
         ((or (pair? v) (null? v)) v)
         ((string? v) (map string (string->list v)))
         (else (ex-raise (make-tuple 'Protocol.UndefinedError "not enumerable")))))
@@ -550,6 +554,9 @@
 ;; Collect a list of results into a target collectable (the `into:` option).
 (define (ex-into target items)
   (cond ((or (null? target) (pair? target)) (append target items))
+        ((mapset? target)
+         (emap-put target 'map
+                   (fold (lambda (e m) (emap-put m e '())) (emap-ref target 'map (alist->emap '())) items)))
         ((emap? target)
          (fold (lambda (kv m) (emap-put m (tuple-ref kv 0) (tuple-ref kv 1)))
                target items))

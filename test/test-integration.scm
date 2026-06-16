@@ -534,6 +534,51 @@ function_exported?(M, :foo, 0)")))
      (deftest "apply/3"
        (assert-equal 6 (ev "apply(Enum, :sum, [[1, 2, 3]])")))
 
+     ;; --- features exercised by the libgraph real-program port ---
+     (deftest "MapSet new/put/member?/union"
+       (assert-equal "[1, 2, 3]"
+        (ev* "s = MapSet.new([1, 2, 2, 3])\nEnum.sort(MapSet.to_list(MapSet.union(s, MapSet.new([3]))))")))
+     (deftest "Enum over a MapSet"
+       (assert-equal 12 (ev "Enum.sum(MapSet.new([2, 4, 6, 4]))")))
+     (deftest "Enum.reduce over a map"
+       (assert-equal 3 (ev "Enum.reduce(%{a: 1, b: 2}, 0, fn {_k, v}, s -> s + v end)")))
+     (deftest "function head with default arg"
+       (assert-equal "ok-[]"
+        (ev "defmodule M do
+def f(x, opts \\\\ [])
+def f(x, opts) when is_list(opts), do: \"#{x}-#{inspect(opts)}\"
+end
+M.f(:ok)")))
+     (deftest "multi-line def head + guard on next line"
+       (assert-equal 7
+        (ev "defmodule M do
+def add(
+      a,
+      b
+    )
+    when is_integer(a) do
+  a + b
+end
+end
+M.add(3, 4)")))
+     (deftest "implicit try/catch in def"
+       (assert-equal 'caught
+        (ev "defmodule M do
+def f do
+  throw(:boom)
+catch
+  _kind, _err -> :caught
+end
+end
+M.f()")))
+     (deftest "for with into: and do-block"
+       (assert-equal 2 (ev "m = for x <- [1, 2], into: %{}, do: {x, x * x}\nmap_size(m)")))
+     (deftest "list with trailing keywords"
+       (assert-equal "[:set, {:keypos, 1}]" (ev* "[:set, keypos: 1]")))
+     (deftest "= match in a case clause pattern"
+       (assert-equal 5
+        (ev "case {2, 3} do\n{a, b} = _pair -> a + b\nend")))
+
      ;; --- module attributes (@-attrs) ---
      (deftest "attribute read"
        (assert-equal 5000 (ev "defmodule M do
