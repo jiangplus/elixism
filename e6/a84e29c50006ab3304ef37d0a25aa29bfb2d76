@@ -1,0 +1,63 @@
+bench-json/run.sh
+  s_3d2614fa3f235f::t_5feb2ee5e99066 23-25
+module/elixir/compiler.scm
+  s_8e9977ffd5237f::t_e851098a5ff472 535-539
+  s_3d2614fa3f235f::t_1699cfc10628ff 65
+  s_8e9977ffd5237f::t_0e862ddc8baa31 516-527
+  s_3d2614fa3f235f::t_43a206f6f2ce3d 59,383
+  s_3d2614fa3f235f::t_892a8317b79c15 64
+module/elixir/expand.scm
+  s_8e9977ffd5237f::t_f2f16ed1fc5f6a 276-324,359-360,362,373-374,376,380-384,388-396,399,401,403-406,409,411-472,476-481,486,488-491,493-503
+  s_8e9977ffd5237f::t_3746e98b730a1e 66-68
+  s_8e9977ffd5237f::t_03b7597624cb4f 211-214,216-220
+  s_8e9977ffd5237f::t_55eeca1c5d7c9b 204-207,209-210,215
+  s_8e9977ffd5237f::t_7b9f85d1fb2637 325-335,338-339,341-351
+  s_8e9977ffd5237f::t_66e709d375c5da 336-337,340
+module/elixir/runtime.scm
+  s_3d2614fa3f235f::t_e4c3769290deb4 407
+  s_3d2614fa3f235f::t_3a106896c48f0b 171-172
+  s_3d2614fa3f235f::t_bba03ca5627cd9 362-372
+  s_3d2614fa3f235f::t_0330c615b4d9d4 380-387,396-406,408-418,420-428
+  s_3d2614fa3f235f::t_d7a0ca19f7c8b7 388-389,393-395,419
+  s_3d2614fa3f235f::t_29605ad6e9cce8 49
+  s_3d2614fa3f235f::t_ac8f72bbba0be8 32,108
+  s_3d2614fa3f235f::t_a05f4dae72c1e7 323-336,338-361,373-377
+module/elixir/parser.scm
+  s_8e9977ffd5237f::t_2aff59f54d608b 664-670,672
+  s_8e9977ffd5237f::t_cc391f21cf9ff1 687-688,690-700
+development.md
+  s_8e9977ffd5237f::t_3c58761cb88bbd 78-136
+  s_8e9977ffd5237f::t_d0595d9e473216 1-77
+module/elixir/eval.scm
+  s_8e9977ffd5237f::t_ea3807191f2730 64-77,79,84-92,94-99,103,105,107-140,143-146,148-171
+  s_8e9977ffd5237f::t_80a3436d41cf6f 147
+  s_8e9977ffd5237f::t_6d299ae422d8c0 184-185,187,191-219,227-228,230-232,234,236-267,269-271,281-332
+bench-json/json.ex
+  s_3d2614fa3f235f::t_bf1a836caca675 14,16,24-25,46,48,51-52,70-71
+  s_3d2614fa3f235f::t_ff08a7982c7a8a 34
+  s_3d2614fa3f235f::t_114c4a6a7088d7 49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "e6a84e29c50006ab3304ef37d0a25aa29bfb2d76",
+  "prompts": {},
+  "sessions": {
+    "s_3d2614fa3f235f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e9b3d-dc0a-7240-8130-d9659727a119",
+        "model": "gpt-5.5"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    },
+    "s_8e9977ffd5237f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa7bf6bc-f474-4925-a494-a8ea455f13a6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
