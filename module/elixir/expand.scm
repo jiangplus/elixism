@@ -509,6 +509,16 @@
                                    (list-ast (list (quote-to-ast value ctx))))))))
     (('capture inner)
      (tuple3-ast (op-atom-ast "&") (list-ast (list (quote-to-ast inner ctx)))))
+    ;; string interpolation: an internal {:__istring__, [], parts} node whose
+    ;; parts are literal strings or (quoted) interpolated expressions.
+    (('istring parts)
+     (tuple3-ast (atom-ast '__istring__)
+                 (list-ast (map (lambda (p)
+                                  (match p
+                                    (('string s) `(string ,s))
+                                    (('call 'unquote (e)) (expand-expr e ctx))
+                                    (_ (quote-to-ast p ctx))))
+                                parts))))
     (('tuple elts)
      (if (= (length elts) 2)
          (tuple2-ast (quote-to-ast (car elts) ctx) (quote-to-ast (cadr elts) ctx))

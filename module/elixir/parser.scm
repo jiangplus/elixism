@@ -80,7 +80,22 @@
 ;;; (`raise "x"`, `IO.puts msg`, `send pid, m`) are recognised, so container
 ;;; commas and operator precedence elsewhere are unaffected.
 (define (parse-stmt c)
-  (maybe-no-paren-call c (parse-expr c 0)))
+  (maybe-do-block-call c (maybe-no-paren-call c (parse-expr c 0))))
+
+;; `foo arg do … end` / `Mod.foo arg do … end` / `foo do … end`: a call (paren
+;; or no-paren) followed by a do-block attaches the block as a trailing
+;; `do:`/`else:`/… keyword argument — the form Phoenix/Ecto DSL macros use.
+(define (maybe-do-block-call c e)
+  (if (and (at-ident? c 'do) (call-like? e))
+      (let ((blk (parse-do-block c)))           ; ((do . body) (else . …) …)
+        (match e
+          (('call f args)       `(call ,f ,(append args (list `(kwlist ,blk)))))
+          (('remote m fun args) `(remote ,m ,fun ,(append args (list `(kwlist ,blk)))))
+          (('var f)             `(call ,f ((kwlist ,blk))))))
+      e))
+
+(define (call-like? e)
+  (match e (('call . _) #t) (('remote _ _ _) #t) (('var _) #t) (_ #f)))
 
 (define (maybe-no-paren-call c e)
   (if (and (no-paren-target? e) (value-start? c))

@@ -361,6 +361,7 @@
      (append (append-map pattern-vars elts)
              (if tail (pattern-vars tail) '())))
     (('map pairs) (append-map (lambda (kv) (pattern-vars (cdr kv))) pairs))
+    (('kwlist pairs) (append-map (lambda (kv) (pattern-vars (cdr kv))) pairs))
     (('struct _ pairs) (append-map (lambda (kv) (pattern-vars (cdr kv))) pairs))
     (('binary segs) (append-map (lambda (s) (match s (('bseg e _) (pattern-vars e)))) segs))
     (('binop "<>" _ rest) (pattern-vars rest))
@@ -407,6 +408,11 @@
                             ,(compile-pattern (cdr kv) `(emap-ref ,subj ,k 'nil) fail ctx))))
                   pairs)))
     (('binary segs) (compile-binary-pattern segs subj ctx))
+    ;; a keyword-list pattern `[do: block, …]` is sugar for a list of {key, pat}
+    ;; 2-tuples — used by `def macro(name, do: block)` heads.
+    (('kwlist pairs)
+     (compile-pattern `(list ,(map (lambda (kv) `(tuple ((atom ,(car kv)) ,(cdr kv)))) pairs) #f)
+                      subj fail ctx))
     ;; `p = q` in a pattern: both sides must match the *same* subject (e.g.
     ;; `[h | _] = whole`).  Without this it fell to the expression catch-all and
     ;; *raised* on mismatch instead of failing the clause and falling through.

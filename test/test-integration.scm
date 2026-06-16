@@ -452,6 +452,43 @@ field(:age, :integer)
 end
 User.__fields__()")))
 
+     (deftest "macro do-block call (schema name do … end)"
+       (assert-equal "users:[:name, :age]"
+        (ev "defmodule Sch do
+defmacro __using__(_) do
+quote do
+import Sch
+Module.register_attribute(__MODULE__, :fields, accumulate: true)
+@before_compile Sch
+end
+end
+defmacro schema(src, do: block) do
+quote do
+def __source__, do: unquote(src)
+unquote(block)
+end
+end
+defmacro field(n, t) do
+quote do
+Module.put_attribute(__MODULE__, :fields, {unquote(n), unquote(t)})
+end
+end
+defmacro __before_compile__(env) do
+fs = Module.get_attribute(env.module, :fields)
+quote do
+def __names__, do: Enum.map(unquote(Macro.escape(fs)), fn {n, _} -> n end)
+end
+end
+end
+defmodule User do
+use Sch
+schema \"users\" do
+field :name, :string
+field :age, :integer
+end
+end
+\"#{User.__source__()}:#{inspect(User.__names__())}\"")))
+
      ;; --- module attributes (@-attrs) ---
      (deftest "attribute read"
        (assert-equal 5000 (ev "defmodule M do

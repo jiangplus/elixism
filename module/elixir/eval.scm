@@ -97,6 +97,8 @@
     (('attr-get name) (mk3 sym@ (list (mk3 name 'nil))))
     (('attr-set name v) (mk3 sym@ (list (mk3 name (list (ast->term v))))))
     (('capture inner) (mk3 sym& (list (ast->term inner))))
+    (('istring parts)
+     (mk3 '__istring__ (map (lambda (p) (match p (('string s) s) (_ (ast->term p)))) parts)))
     (('tuple elts)
      (if (= (length elts) 2)
          (make-tuple (ast->term (car elts)) (ast->term (cadr elts)))
@@ -233,6 +235,8 @@
           ((eq? name '__aliases__) `(alias ,args))
           ((eq? name sym{}) `(tuple ,(map term->ast args)))
           ((eq? name '__block__) `(block ,(map term->ast args)))
+          ((eq? name '__istring__)
+           `(istring ,(map (lambda (p) (if (string? p) `(string ,p) (term->ast p))) args)))
           ((eq? name sym=) `(match ,(term->ast (car args)) ,(term->ast (cadr args))))
           ;; & : &1 capture-arg, else &expr capture
           ((eq? name sym&)
