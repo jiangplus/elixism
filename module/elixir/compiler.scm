@@ -56,10 +56,13 @@
     ((Map  get 3)      . ,(lambda (a) `(emap-ref ,@a)))
     ((Map  has_key? 2) . ,(lambda (a) `(->ex-bool (emap-has-key? ,@a))))
     ((List to_string 1) . ,(lambda (a) `(ex->display ,(car a))))
+    ((Enum reverse 1)   . ,(lambda (a) `(reverse ,(car a))))
     ;; Fast scanning primitives for parsers (see runtime.scm); one host loop per
     ;; token instead of an Elixir call per character.
     ((Scan ws 1)        . ,(lambda (a) `(ex-skip-ws ,(car a))))
     ((Scan string 1)    . ,(lambda (a) `(ex-scan-string ,(car a))))
+    ((Scan escaped_string 1) . ,(lambda (a) `(ex-scan-escaped-string ,(car a))))
+    ((Scan object_put 3) . ,(lambda (a) `(emap-cons ,@a)))
     ((Scan number 1)    . ,(lambda (a) `(ex-scan-number ,(car a))))))
 
 (define (intrinsic-form mod fun arity cargs)
@@ -377,7 +380,7 @@
   (match pat
     (('var '_) #t)
     (('var v) `(begin (set! ,(mangle v) ,subj) #t))
-    (('integer n) `(ex-equal? ,subj ,n))
+    (('integer n) `(eqv? ,subj ,n))
     (('float x) `(ex-equal? ,subj ,x))
     (('atom a) `(eq? ,subj ',a))
     (('string s) `(ex-equal? ,subj ,s))
@@ -510,6 +513,18 @@
 ;;; Expressions
 ;;; ----------------------------------------------------------------------
 
+;; A minimal %Macro.Env{} for __ENV__/__CALLER__: enough for the common
+;; reflective reads (.module, .function, .file, .line) Phoenix/Ecto perform.
+(define (env-map ctx)
+  `(alist->emap (list (cons '__struct__ 'Macro.Env)
+                      (cons 'module ',ctx)
+                      (cons 'function 'nil)
+                      (cons 'file "nofile")
+                      (cons 'line 0)
+                      (cons 'context 'nil)
+                      (cons 'aliases '())
+                      (cons 'context_modules '()))))
+
 (define (compile-expr e ctx)
   (match e
     (('integer n) n)
@@ -517,6 +532,11 @@
     (('atom a) `',a)
     (('string s) s)
     (('charlist s) `(string->charlist ,s))
+    ;; compile-time special vars resolve against the lexical module `ctx`.
+    (('var '__MODULE__) `',ctx)
+    (('var '__ENV__) (env-map ctx))
+    (('var '__CALLER__) (env-map ctx))
+    (('var '__DIR__) ".")
     (('var v) (mangle v))
     (('defmodule name body) (compile-module name body))
     (('defprotocol name body) (compile-defprotocol name body))

@@ -11,9 +11,9 @@
 defmodule Json do
   # Public entry: parse a JSON string into Elixir terms.
   def parse(str) do
-    {value, rest} = value(skip_ws(String.to_charlist(str)))
+    {value, rest} = value(Scan.ws(String.to_charlist(str)))
 
-    case skip_ws(rest) do
+    case Scan.ws(rest) do
       [] -> value
       _ -> raise "trailing content after JSON value"
     end
@@ -21,19 +21,17 @@ defmodule Json do
 
   # ---- value dispatch -------------------------------------------------------
 
-  defp value([?{ | t]), do: object(skip_ws(t), %{})
-  defp value([?[ | t]), do: array(skip_ws(t), [])
+  defp value([?{ | t]), do: object(Scan.ws(t), %{})
+  defp value([?[ | t]), do: array(Scan.ws(t), [])
   defp value([?" | t]), do: parse_string(t)
   defp value([?t, ?r, ?u, ?e | t]), do: {true, t}
   defp value([?f, ?a, ?l, ?s, ?e | t]), do: {false, t}
   defp value([?n, ?u, ?l, ?l | t]), do: {nil, t}
   defp value(chars), do: Scan.number(chars)
 
-  # Fast path: scan a whole no-escape string with one host loop; only strings
-  # that actually contain a backslash fall back to the char-by-char path.
   defp parse_string(t) do
     case Scan.string(t) do
-      :escape -> string(t, [])
+      :escape -> Scan.escaped_string(t)
       result -> result
     end
   end
@@ -45,13 +43,13 @@ defmodule Json do
   defp object([?" | t], acc) do
     {key, rest} = parse_string(t)
 
-    case skip_ws(rest) do
+    case Scan.ws(rest) do
       [?: | rest2] ->
-        {val, rest3} = value(skip_ws(rest2))
-        acc2 = Map.put(acc, key, val)
+        {val, rest3} = value(Scan.ws(rest2))
+        acc2 = Scan.object_put(acc, key, val)
 
-        case skip_ws(rest3) do
-          [?, | rest4] -> object(skip_ws(rest4), acc2)
+        case Scan.ws(rest3) do
+          [?, | rest4] -> object(Scan.ws(rest4), acc2)
           [?} | rest4] -> {acc2, rest4}
           _ -> raise "expected ',' or '}' in object"
         end
@@ -69,58 +67,12 @@ defmodule Json do
     {val, rest} = value(chars)
     acc2 = [val | acc]
 
-    case skip_ws(rest) do
-      [?, | rest2] -> array(skip_ws(rest2), acc2)
+    case Scan.ws(rest) do
+      [?, | rest2] -> array(Scan.ws(rest2), acc2)
       [?] | rest2] -> {Enum.reverse(acc2), rest2}
       _ -> raise "expected ',' or ']' in array"
     end
   end
-
-  # ---- strings (with escapes) -----------------------------------------------
-
-  defp string([?" | t], acc), do: {List.to_string(Enum.reverse(acc)), t}
-  defp string([?\\ | t], acc), do: escape(t, acc)
-  defp string([c | t], acc), do: string(t, [c | acc])
-
-  defp escape([?" | t], acc), do: string(t, [?" | acc])
-  defp escape([?\\ | t], acc), do: string(t, [?\\ | acc])
-  defp escape([?/ | t], acc), do: string(t, [?/ | acc])
-  defp escape([?n | t], acc), do: string(t, [?\n | acc])
-  defp escape([?t | t], acc), do: string(t, [?\t | acc])
-  defp escape([?r | t], acc), do: string(t, [?\r | acc])
-  defp escape([?b | t], acc), do: string(t, [8 | acc])
-  defp escape([?f | t], acc), do: string(t, [12 | acc])
-
-  defp escape([?u, a, b, c, d | t], acc) do
-    cp = hex4(a, b, c, d)
-
-    cond do
-      cp >= 0xD800 and cp <= 0xDBFF ->
-        # high surrogate — must be followed by \uXXXX low surrogate
-        case t do
-          [?\\, ?u, e, f, g, h | t2] ->
-            low = hex4(e, f, g, h)
-            combined = 0x10000 + (cp - 0xD800) * 0x400 + (low - 0xDC00)
-            string(t2, [combined | acc])
-
-          _ ->
-            string(t, [cp | acc])
-        end
-
-      true ->
-        string(t, [cp | acc])
-    end
-  end
-
-  defp hex4(a, b, c, d), do: ((hex(a) * 16 + hex(b)) * 16 + hex(c)) * 16 + hex(d)
-
-  defp hex(c) when c >= ?0 and c <= ?9, do: c - ?0
-  defp hex(c) when c >= ?a and c <= ?f, do: c - ?a + 10
-  defp hex(c) when c >= ?A and c <= ?F, do: c - ?A + 10
-
-  # ---- whitespace (one host-loop scan, not a call per space) ----------------
-
-  defp skip_ws(chars), do: Scan.ws(chars)
 
   # ---- structural fingerprint (for cross-runtime correctness checks) --------
 

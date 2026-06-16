@@ -661,8 +661,15 @@
     (if p (cdr p) `(atom nil))))
 
 ;; def name(params) [when guard] do .. end   |   def name(params), do: expr
+;; The name may be `unquote(expr)` (dynamic def, only meaningful inside a quote).
+(define (parse-def-name c)
+  (let ((tok (advance! c)))
+    (if (and (eq? (token-type tok) 'ident) (eq? (token-value tok) 'unquote) (at? c 'lparen))
+        `(unquote-name ,(car (parse-paren-args c)))
+        (token-value tok))))
+
 (define (parse-def c kind)
-  (let* ((name (token-value (advance! c)))   ; ident
+  (let* ((name (parse-def-name c))
          (params (if (at? c 'lparen) (parse-paren-args c) '())))
     (let-values (((guard rest) (parse-optional-guard c)))
       (cond
@@ -677,9 +684,20 @@
 
 ;; quote do … end  ->  (quoted BODY).  The expansion phase (elixir expand)
 ;; rewrites this into ordinary AST that builds the {name, meta, args} form.
+;; quote do .. end | quote opts do .. end | quote do: expr | quote kw, do: expr
+;; -> (quoted BODY OPTS) where OPTS is a list of (key . ast) (e.g. bind_quoted).
 (define (parse-quote c)
-  (let ((blk (parse-do-block c)))
-    `(quoted ,(section blk 'do))))
+  (cond
+   ((at-ident? c 'do) `(quoted ,(section (parse-do-block c) 'do) ()))
+   ((at? c 'kwident)
+    (let* ((kw (cadr (parse-kwlist c 'eof)))
+           (do-pair (assq 'do kw))
+           (opts (filter (lambda (p) (not (eq? (car p) 'do))) kw)))
+      (cond
+       (do-pair `(quoted ,(cdr do-pair) ,opts))
+       ((at-ident? c 'do) `(quoted ,(section (parse-do-block c) 'do) ,opts))
+       (else `(quoted (atom nil) ,opts)))))
+   (else `(quoted ,(section (parse-do-block c) 'do) ()))))
 
 (define (parse-optional-guard c)
   (if (at-ident? c 'when)

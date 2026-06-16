@@ -63,8 +63,9 @@
     ;; an alias reference: expand a leading aliased segment to its full path
     (('alias parts) (resolve-alias parts))
 
-    ;; quote: the body's AST becomes data-building AST
-    (('quoted body) (quote-to-ast body ctx))
+    ;; quote: the body's AST becomes data-building AST.  `bind_quoted: binding`
+    ;; evaluates the bindings once and rebinds the names inside the quoted body.
+    (('quoted body opts) (expand-quote body opts ctx))
 
     ;; module attributes pass through (the value may contain quote/macros)
     (('attr-set name value) `(attr-set ,name ,(expand-expr value ctx)))
@@ -200,8 +201,23 @@
                groups))
     (_ #t)))
 
+;; Flatten a form into the module/top-level form sequence.  A macro that returns
+;; a *list* of quoted defs (the `for f <- … do quote do def … end end` idiom)
+;; injects each as a module form — in Elixir each def in the list has a
+;; compile-time definition effect; here we splice them as module forms.
 (define (flatten-form f)
-  (match f (('block fs) (append-map flatten-form fs)) (_ (list f))))
+  (match f
+    (('block fs) (append-map flatten-form fs))
+    ;; only a list whose every element is a definition (not a value list literal)
+    (('list elts #f) (if (and (pair? elts) (every def-form? elts))
+                         (append-map flatten-form elts)
+                         (list f)))
+    (_ (list f))))
+
+(define (def-form? f)
+  (match f
+    (('def . _) #t) (('defmodule . _) #t) (('defprotocol . _) #t) (('defimpl . _) #t)
+    (_ #f)))
 
 (define (register-defmacro! mod form)
   (match form
@@ -257,6 +273,82 @@
 (define (op-atom-ast op) `(atom ,(string->symbol op)))
 (define (list-ast asts) `(list ,asts #f))
 (define (tuple3-ast name-ast args-ast) `(tuple (,name-ast ,empty-meta ,args-ast)))
+(define (tuple2-ast a b) `(tuple (,a ,b)))
+
+;; A keyword list `[k1: v1, k2: v2]` as builder-AST, from (sym . quoted-val-ast).
+(define (kwterms-ast pairs)
+  (list-ast (map (lambda (kv) (tuple2-ast (atom-ast (car kv)) (cdr kv))) pairs)))
+
+;; Builder-AST for a call/tuple arg list, splicing `unquote_splicing(e)`.
+(define (splice-arg? a) (match a (('call 'unquote_splicing (_)) #t) (_ #f)))
+(define (quote-args args ctx)
+  (if (any splice-arg? args)
+      (fold-right
+       (lambda (a acc)
+         (match a
+           (('call 'unquote_splicing (e)) `(binop "++" ,(expand-expr e ctx) ,acc))
+           (_ `(list (,(quote-to-ast a ctx)) ,acc))))
+       '(list () #f) args)
+      (list-ast (map (lambda (a) (quote-to-ast a ctx)) args))))
+
+;; A stab clause `pat[, pat] [when g] -> body`  ->  {:->, [], [lhs, body]}.
+(define (qclause cl ctx)
+  (match cl
+    (('clause pats guard body)
+     (let* ((pq (map (lambda (p) (quote-to-ast p ctx)) pats))
+            (lhs (if guard
+                     (list-ast (list (tuple3-ast (atom-ast 'when)
+                                       (list-ast (append pq (list (quote-to-ast guard ctx)))))))
+                     (list-ast pq))))
+       (tuple3-ast (op-atom-ast "->") (list-ast (list lhs (quote-to-ast body ctx))))))))
+
+(define (qclauses cls ctx) (list-ast (map (lambda (c) (qclause c ctx)) cls)))
+
+;; map/struct entry pairs (key-ast . val-ast)  ->  list of {k, v} builder-tuples.
+(define (qpairs pairs ctx)
+  (list-ast (map (lambda (kv) (tuple2-ast (quote-to-ast (car kv) ctx)
+                                          (quote-to-ast (cdr kv) ctx)))
+                 pairs)))
+
+;; a binary segment `e` or `e::type`  ->  e  or  {:"::", [], [e, type-term]}.
+(define (qseg seg ctx)
+  (match seg
+    (('bseg e #f) (quote-to-ast e ctx))
+    (('bseg e type)
+     (tuple3-ast (op-atom-ast "::")
+                 (list-ast (list (quote-to-ast e ctx) (qbin-type type)))))))
+(define (qbin-type type)
+  (cond ((symbol? type) (tuple3-ast (atom-ast type) `(atom nil)))
+        ((integer? type) `(integer ,type))
+        (else (tuple3-ast (atom-ast 'size) (list-ast (list (quote-to-ast type 'Elixir)))))))
+
+;; quote with options.  `bind_quoted: [k: expr, …]` evaluates each expr once (at
+;; macro-expansion time) and injects the *escaped value* bound to `k` inside the
+;; quoted body — the canonical hygienic way to use an argument more than once.
+(define (expand-quote body opts ctx)
+  (let ((bq (assq 'bind_quoted opts)))
+    (if bq
+        (let ((binds (bind-quoted-pairs (cdr bq))))
+          (tuple3-ast (atom-ast '__block__)
+                      (list-ast (append
+                                 (map (lambda (b)
+                                        (let ((nm (car b)) (vexpr (cdr b)))
+                                          ;; {:=, [], [{nm, [], ctx}, <value AST>]}: bind the
+                                          ;; (expanded) value to nm inside the quoted body.
+                                          (tuple3-ast (op-atom-ast "=")
+                                            (list-ast (list (tuple3-ast (atom-ast nm) `(atom nil))
+                                                            (expand-expr vexpr ctx))))))
+                                      binds)
+                                 (list (quote-to-ast body ctx))))))
+        (quote-to-ast body ctx))))
+
+;; the (name . value-ast) pairs of a bind_quoted: keyword list.
+(define (bind-quoted-pairs node)
+  (match node
+    (('kwlist pairs) pairs)
+    (('list elts #f)
+     (map (lambda (e) (match e (('tuple (('atom k) v)) (cons k v)))) elts))
+    (_ '())))
 
 (define (quote-to-ast node ctx)
   (match node
@@ -264,8 +356,10 @@
     (('string _) node) (('charlist _) node)
     ;; unquote(e): splice the expanded expression value
     (('call 'unquote (e)) (expand-expr e ctx))
-    ;; variable -> {name, [], nil}
+    ;; variable -> {name, [], nil}.  __MODULE__/__ENV__/__CALLER__ stay as
+    ;; special-form vars; the compiler resolves them in the injected context.
     (('var v) (tuple3-ast (atom-ast v) `(atom nil)))
+    (('capture-arg n) (tuple3-ast (op-atom-ast "&") (list-ast (list `(integer ,n)))))
     (('block stmts)
      (if (= (length stmts) 1)
          (quote-to-ast (car stmts) ctx)
@@ -276,39 +370,134 @@
                  (list-ast (list (quote-to-ast l ctx) (quote-to-ast r ctx)))))
     (('unop op x)
      (tuple3-ast (op-atom-ast op) (list-ast (list (quote-to-ast x ctx)))))
+    (('match p e)
+     (tuple3-ast (op-atom-ast "=") (list-ast (list (quote-to-ast p ctx) (quote-to-ast e ctx)))))
     (('call name args)
-     (tuple3-ast (atom-ast name)
-                 (list-ast (map (lambda (a) (quote-to-ast a ctx)) args))))
+     (tuple3-ast (atom-ast name) (quote-args args ctx)))
     (('remote modexpr fun args)
      (tuple3-ast (tuple3-ast (atom-ast (string->symbol "."))
                              (list-ast (list (quote-to-ast modexpr ctx) (atom-ast fun))))
-                 (list-ast (map (lambda (a) (quote-to-ast a ctx)) args))))
+                 (quote-args args ctx)))
+    (('dotcall f args)
+     (tuple3-ast (tuple3-ast (atom-ast (string->symbol "."))
+                             (list-ast (list (quote-to-ast f ctx))))
+                 (quote-args args ctx)))
     (('alias parts)
      (tuple3-ast (atom-ast '__aliases__)
                  (list-ast (map (lambda (p) (atom-ast p)) parts))))
+    (('attr-get name)
+     (tuple3-ast (op-atom-ast "@")
+                 (list-ast (list (tuple3-ast (atom-ast name) `(atom nil))))))
+    (('attr-set name value)
+     (tuple3-ast (op-atom-ast "@")
+                 (list-ast (list (tuple3-ast (atom-ast name)
+                                   (list-ast (list (quote-to-ast value ctx))))))))
+    (('capture inner)
+     (tuple3-ast (op-atom-ast "&") (list-ast (list (quote-to-ast inner ctx)))))
     (('tuple elts)
      (if (= (length elts) 2)
-         `(tuple (,(quote-to-ast (car elts) ctx) ,(quote-to-ast (cadr elts) ctx)))
+         (tuple2-ast (quote-to-ast (car elts) ctx) (quote-to-ast (cadr elts) ctx))
          (tuple3-ast (atom-ast (string->symbol "{}"))
-                     (list-ast (map (lambda (e) (quote-to-ast e ctx)) elts)))))
+                     (quote-args elts ctx))))
     (('list elts tail)
-     `(list ,(map (lambda (e) (quote-to-ast e ctx)) elts)
-            ,(and tail (quote-to-ast tail ctx))))
+     (if (any splice-arg? elts)
+         (quote-args (append elts (if tail (list tail) '())) ctx)
+         `(list ,(map (lambda (e) (quote-to-ast e ctx)) elts)
+                ,(and tail (quote-to-ast tail ctx)))))
     (('kwlist pairs)
      `(list ,(map (lambda (kv)
-                    `(tuple (,(atom-ast (car kv)) ,(quote-to-ast (cdr kv) ctx))))
+                    (tuple2-ast (atom-ast (car kv)) (quote-to-ast (cdr kv) ctx)))
                   pairs) #f))
+    ;; %{} maps and updates -> {:%{}, [], pairs} (update wraps a {:|, …} entry)
+    (('map pairs) (tuple3-ast (op-atom-ast "%{}") (qpairs pairs ctx)))
+    (('map-update base pairs)
+     (tuple3-ast (op-atom-ast "%{}")
+                 (list-ast (list (tuple3-ast (op-atom-ast "|")
+                                   (list-ast (list (quote-to-ast base ctx)
+                                                   (qpairs pairs ctx))))))))
+    ;; %Mod{} structs -> {:%, [], [mod, {:%{}, [], pairs}]}
+    (('struct mod pairs)
+     (tuple3-ast (op-atom-ast "%")
+                 (list-ast (list (quote-to-ast mod ctx)
+                                 (tuple3-ast (op-atom-ast "%{}") (qpairs pairs ctx))))))
+    (('struct-update mod base pairs)
+     (tuple3-ast (op-atom-ast "%")
+                 (list-ast (list (quote-to-ast mod ctx)
+                                 (tuple3-ast (op-atom-ast "%{}")
+                                   (list-ast (list (tuple3-ast (op-atom-ast "|")
+                                     (list-ast (list (quote-to-ast base ctx)
+                                                     (qpairs pairs ctx)))))))))))
+    (('binary segs)
+     (tuple3-ast (op-atom-ast "<<>>") (list-ast (map (lambda (s) (qseg s ctx)) segs))))
+    ;; control forms -> {:kw, [], [..args.., [do: …, else: …]]}
+    (('if t a b)
+     (tuple3-ast (atom-ast 'if)
+                 (list-ast (list (quote-to-ast t ctx)
+                                 (kwterms-ast `((do . ,(quote-to-ast a ctx))
+                                                (else . ,(quote-to-ast b ctx))))))))
+    (('case s cls)
+     (tuple3-ast (atom-ast 'case)
+                 (list-ast (list (quote-to-ast s ctx)
+                                 (kwterms-ast `((do . ,(qclauses cls ctx))))))))
+    (('cond cls)
+     (tuple3-ast (atom-ast 'cond)
+                 (list-ast (list (kwterms-ast `((do . ,(qclauses cls ctx))))))))
+    (('fn cls) (tuple3-ast (atom-ast 'fn) (qclauses cls ctx)))
+    (('receive cls after)
+     (tuple3-ast (atom-ast 'receive)
+                 (list-ast (list (kwterms-ast
+                                  (cons `(do . ,(qclauses cls ctx))
+                                        (if after `((after . ,(qclauses (list after) ctx))) '())))))))
+    (('for quals opts body)
+     (tuple3-ast (atom-ast 'for)
+                 (quote-args
+                  (append (map qual->ast quals)
+                          (list `(kwlist ,(append (map (lambda (kv) (cons (car kv) (cdr kv))) opts)
+                                                  (list (cons 'do body))))))
+                  ctx)))
+    (('with cls body els)
+     (tuple3-ast (atom-ast 'with)
+                 (quote-args
+                  (append (map with-clause->ast cls)
+                          (list `(kwlist ,(cons (cons 'do body)
+                                                (if (null? els) '() (list (cons 'else `(fn ,els)))))) ))
+                  ctx)))
+    (('try body resc catch-cls else-cls after)
+     (tuple3-ast (atom-ast 'try)
+                 (list-ast (list (kwterms-ast
+                   (append `((do . ,(quote-to-ast body ctx)))
+                           (if (pair? resc) `((rescue . ,(qclauses resc ctx))) '())
+                           (if (pair? catch-cls) `((catch . ,(qclauses catch-cls ctx))) '())
+                           (if (pair? else-cls) `((else . ,(qclauses else-cls ctx))) '())
+                           (if after `((after . ,(quote-to-ast after ctx))) '())))))))
     ;; def/defp/defmacro -> {kind, [], [head, [do: body]]} (head is {name,[],sig};
     ;; a guard wraps it in {:when, [], [head, guard]}).  Lets macros quote defs.
     (('def kind name params guard body)
-     (let* ((sig (if (null? params)
-                     (tuple3-ast (atom-ast name) `(atom nil))
-                     (tuple3-ast (atom-ast name)
-                                 (list-ast (map (lambda (p) (quote-to-ast p ctx)) params)))))
+     (let* ((name-ast (if (and (pair? name) (eq? (car name) 'unquote-name))
+                          (expand-expr (cadr name) ctx)
+                          (atom-ast name)))
+            (sig (if (null? params)
+                     (tuple3-ast name-ast `(atom nil))
+                     (tuple3-ast name-ast (quote-args params ctx))))
             (head (if guard
                       (tuple3-ast (atom-ast 'when)
                                   (list-ast (list sig (quote-to-ast guard ctx))))
                       sig))
-            (do-kw `(list ((tuple (,(atom-ast 'do) ,(quote-to-ast body ctx)))) #f)))
+            (do-kw (kwterms-ast `((do . ,(quote-to-ast body ctx))))))
        (tuple3-ast (atom-ast kind) (list-ast (list head do-kw)))))
+    (('defmodule name body)
+     (tuple3-ast (atom-ast 'defmodule)
+                 (list-ast (list (quote-to-ast name ctx)
+                                 (kwterms-ast `((do . ,(quote-to-ast body ctx))))))))
     (_ (error "quote: unsupported node" node))))
+
+;; for-comprehension qualifiers / with-clauses -> their Elixir AST nodes, so
+;; quote-args can quote them like any other expression.
+(define (qual->ast q)
+  (match q
+    (('filter e) e)
+    (('gen pat enum) `(binop "<-" ,pat ,enum))))
+(define (with-clause->ast c)
+  (match c
+    (('bare e) e)
+    (('match p e) `(binop "<-" ,p ,e))))

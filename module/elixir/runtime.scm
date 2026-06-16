@@ -29,7 +29,7 @@
             make-tuple tuple? tuple-ref tuple-size tuple->list list->tuple
             tuple-elements
             ;; maps
-            make-emap emap? emap-ref emap-put emap-has-key? emap->alist
+            make-emap emap? emap-ref emap-put emap-cons emap-has-key? emap->alist
             emap-size emap-keys emap-values alist->emap emap-delete
             ex-map-update ex-get-field
             ;; booleans / truthiness
@@ -46,7 +46,7 @@
             ex-range ex-list-difference string->charlist charlist->string
             ex-enumerate ex-into ex-bin-seg string-be->int bin-seg-width
             ex-build-binary binary-bits-ref
-            ex-skip-ws ex-scan-string ex-scan-number
+            ex-skip-ws ex-scan-string ex-scan-escaped-string ex-scan-number
             make-bin bin? bin-bv binary-bytes bytes->binary
             binary=? binary-byte-size binary-part binary-at
             ;; inspection
@@ -105,6 +105,7 @@
         (else (alist-get (cdr al) k default))))
 
 (define (emap-put m k v) (%make-emap (alist-set (emap-alist m) k v)))
+(define (emap-cons m k v) (%make-emap (cons (cons k v) (emap-alist m))))
 (define (emap-ref m k default) (alist-get (emap-alist m) k default))
 (define (emap-has-key? m k)
   (not (eq? 'absent (alist-get (emap-alist m) k 'absent))))
@@ -167,6 +168,8 @@
 
 (define (ex-equal? a b)
   (cond
+   ((eqv? a b) #t)
+   ((and (string? a) (string? b)) (string=? a b))
    ((and (number? a) (number? b)) (= a b))
    ((and (tuple? a) (tuple? b))
     (and (= (tuple-size a) (tuple-size b))
@@ -178,7 +181,6 @@
                 (emap-alist a))))
    ((and (pair? a) (pair? b))
     (and (ex-equal? (car a) (car b)) (ex-equal? (cdr a) (cdr b))))
-   ((and (string? a) (string? b)) (string=? a b))
    ;; any binary vs any binary (string or <bin>) compares by bytes
    ((or (bin? a) (bin? b)) (and (ex-binary? a) (ex-binary? b) (binary=? a b)))
    (else (eqv? a b))))
@@ -318,17 +320,112 @@
                 (else (loop (cdr cl) (cons c acc)))))
         'escape)))
 
-;; Scan a JSON number run; returns {number, rest}.  string->number yields an
-;; exact integer or a flonum, matching JSON's integer/float distinction.
-(define (ex-scan-number cl)
+(define (json-hex c)
+  (cond ((and (>= c 48) (<= c 57)) (- c 48))
+        ((and (>= c 97) (<= c 102)) (+ (- c 97) 10))
+        ((and (>= c 65) (<= c 70)) (+ (- c 65) 10))
+        (else #f)))
+
+(define (json-hex4 a b c d)
+  (let ((ha (json-hex a)) (hb (json-hex b)) (hc (json-hex c)) (hd (json-hex d)))
+    (and ha hb hc hd (+ (* (+ (* (+ (* ha 16) hb) 16) hc) 16) hd))))
+
+;; Full JSON string scan, including escapes and UTF-16 surrogate pairs.  This is
+;; used only after the no-escape scanner sees a backslash, keeping the common
+;; string path small while avoiding an Elixir-level call per escaped character.
+(define (ex-scan-escaped-string cl)
   (let loop ((cl cl) (acc '()))
-    (if (and (pair? cl)
-             (let ((c (car cl)))
+    (if (pair? cl)
+        (let ((c (car cl)))
+          (cond
+           ((eqv? c 34) (make-tuple (rev-cps->string acc) (cdr cl)))  ; "
+           ((eqv? c 92)
+            (let ((t (cdr cl)))
+              (if (pair? t)
+                  (let ((e (car t)) (rest (cdr t)))
+                    (cond
+                     ((eqv? e 34) (loop rest (cons 34 acc)))   ; \"
+                     ((eqv? e 92) (loop rest (cons 92 acc)))   ; \\
+                     ((eqv? e 47) (loop rest (cons 47 acc)))   ; \/
+                     ((eqv? e 110) (loop rest (cons 10 acc)))  ; \n
+                     ((eqv? e 116) (loop rest (cons 9 acc)))   ; \t
+                     ((eqv? e 114) (loop rest (cons 13 acc)))  ; \r
+                     ((eqv? e 98) (loop rest (cons 8 acc)))    ; \b
+                     ((eqv? e 102) (loop rest (cons 12 acc)))  ; \f
+                     ((and (eqv? e 117)
+                           (pair? rest) (pair? (cdr rest))
+                           (pair? (cddr rest)) (pair? (cdddr rest)))
+                      (let ((cp (json-hex4 (car rest) (cadr rest)
+                                           (caddr rest) (cadddr rest)))
+                            (after (cddddr rest)))
+                        (if cp
+                            (if (and (>= cp #xD800) (<= cp #xDBFF))
+                                (match after
+                                  ((92 117 e f g h . t2)
+                                   (let ((low (json-hex4 e f g h)))
+                                     (if low
+                                         (loop t2
+                                               (cons (+ #x10000 (* (- cp #xD800) #x400)
+                                                        (- low #xDC00))
+                                                     acc))
+                                         'escape)))
+                                  (_ (loop after (cons cp acc))))
+                                (loop after (cons cp acc)))
+                            'escape)))
+                     (else 'escape)))
+                  'escape)))
+           (else (loop (cdr cl) (cons c acc)))))
+        'escape)))
+
+;; Scan a JSON number run; returns {number, rest}.  Integers stay exact; any
+;; decimal point or exponent yields a flonum.  This avoids building a temporary
+;; string and calling the generic reader on Wasm's hot path.
+(define (ex-scan-number cl)
+  (let loop ((xs cl) (pos 0) (neg? #f)
+             (int 0) (frac 0) (scale 1) (frac? #f)
+             (exp? #f) (exp-neg? #f) (exp 0) (exp-sign? #f)
+             (digits 0))
+    (if (and (pair? xs)
+             (let ((c (car xs)))
                (or (and (>= c 48) (<= c 57))          ; 0-9
                    (eqv? c 45) (eqv? c 43)             ; - +
                    (eqv? c 46) (eqv? c 101) (eqv? c 69)))) ; . e E
-        (loop (cdr cl) (cons (car cl) acc))
-        (make-tuple (string->number (rev-cps->string acc)) cl))))
+        (let ((c (car xs)))
+          (cond
+           ((and (>= c 48) (<= c 57))
+            (let ((d (- c 48)))
+              (cond
+               (exp?
+                (loop (cdr xs) (+ pos 1) neg? int frac scale frac?
+                      exp? exp-neg? (+ (* exp 10) d) #f (+ digits 1)))
+               (frac?
+                (loop (cdr xs) (+ pos 1) neg? int (+ (* frac 10) d) (* scale 10) frac?
+                      exp? exp-neg? exp exp-sign? (+ digits 1)))
+               (else
+                (loop (cdr xs) (+ pos 1) neg? (+ (* int 10) d) frac scale frac?
+                      exp? exp-neg? exp exp-sign? (+ digits 1))))))
+           ((and (eqv? c 45) (zero? pos))
+            (loop (cdr xs) (+ pos 1) #t int frac scale frac?
+                  exp? exp-neg? exp exp-sign? digits))
+           ((and exp? exp-sign? (or (eqv? c 45) (eqv? c 43)))
+            (loop (cdr xs) (+ pos 1) neg? int frac scale frac?
+                  exp? (eqv? c 45) exp #f digits))
+           ((and (eqv? c 46) (not frac?) (not exp?))
+            (loop (cdr xs) (+ pos 1) neg? int frac scale #t
+                  exp? exp-neg? exp exp-sign? digits))
+           ((and (or (eqv? c 101) (eqv? c 69)) (not exp?))
+            (loop (cdr xs) (+ pos 1) neg? int frac scale frac?
+                  #t #f 0 #t digits))
+           (else
+            (let ((s (take cl pos)))
+              (make-tuple (string->number (rev-cps->string (reverse s))) xs)))))
+        (let* ((signed-exp (if exp-neg? (- exp) exp))
+               (base (if frac?
+                         (+ (exact->inexact int) (/ (exact->inexact frac) scale))
+                         int))
+               (num (if exp? (* (exact->inexact base) (expt 10 signed-exp)) base))
+               (out (if neg? (- num) num)))
+          (make-tuple out xs)))))
 
 ;; One segment of a `<<>>` binary, rendered to a string (binaries are modelled
 ;; as codepoint strings here -- see design/abi.md).  A `binary`/`bitstring`

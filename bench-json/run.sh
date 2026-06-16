@@ -20,9 +20,9 @@ github.json:5 pokedex.json:3 json-generator.json:3 giphy.json:3 canada.json:1"
 if [ "$1" = "big" ]; then
   SET="$SET govtrack.json:1 issue-90.json:1"
 fi
-# WASM is ~17x slower than Guile, so it runs only the sub-MB files (canada and
-# bigger would take ~minutes); they show "—" in the WASM column.
-WASM_MAX_BYTES=300000
+# WASM now handles canada.json in under a second after the number-scanner
+# fast path; keep the much larger "big" files out of the default WASM pass.
+WASM_MAX_BYTES=3000000
 
 # ---- 0. bootstrap: ensure Jason is cloned + compiled --------------------------
 if [ ! -d "$ELIXISM/jason" ]; then
