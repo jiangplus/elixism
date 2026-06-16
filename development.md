@@ -78,7 +78,52 @@
 
 ---
 
-## 与 Elixir 的兼容性缺口
+## 宏引擎补全(支撑 Phoenix/Ecto 所需的宏功能)
+
+> 本轮把宏子系统从「只能跑最简单的 quote/unquote」补到「能跑 Phoenix/Ecto 风格 DSL」。
+> 宿主 Guile 后端;`make test` 由 269 → 279 全绿。下面的「缺口」清单中宏相关项已基本消除。
+
+### 已实现
+
+- **`quote` 全节点覆盖**(`expand.scm` quote-to-ast):if/case/cond/fn/for/with/try/
+  match/map/map-update/struct/struct-update/n-tuple/binary/capture/dotcall/receive/
+  attr/字符串插值,外加 `unquote_splicing`。
+- **`ast↔term` 桥对称全覆盖**(`eval.scm`):宏可以接收并返回任意代码(do 块、case、fn…)。
+- **`bind_quoted`**:`quote bind_quoted: [k: v] do … end`,按真实 `elixir_expand.erl` 语义
+  脱糖为 `k = v` 前缀(非 escape)。
+- **动态函数名** `def unquote(name)(args)`(parser + quote + 编译);宏返回的 def 列表
+  (`for f <- … do quote do def … end end` 惯用法)被摊平为模块定义。
+- **特殊形式** `__MODULE__`/`__ENV__`/`__CALLER__`/`__DIR__`,在注入上下文里解析。
+- **`import` 绑定**:`import Mod` 后裸名宏调用可展开;`use` 注入的 import 影响其后的行
+  (模块体按序处理,import 用可变 box 维护)。
+- **`Macro` 模块**:`escape`、`expand`/`expand_once`(解析 alias)、`var`、`to_string`。
+- **编译期模块属性**:`Module.register_attribute(accumulate:)` / `put_attribute` /
+  `get_attribute`(共享存储在 `runtime.scm`),展开期执行并从输出剔除。
+- **`@before_compile`**:模块体处理完后调用钩子的 `__before_compile__(env)`(传入真实
+  `%Macro.Env{module: …}`),生成的 def 追加进模块 —— 跑通 Ecto.Schema 套路。
+- **do 块宏调用** `schema "x" do … end` / 嵌套 `scope "/" do … end`,块作为 `do:` 关键字
+  实参挂到调用上,走宏展开;**关键字列表形参** `def macro(name, do: block)`。
+- **多子句 / 带 guard 的 defmacro**。
+
+### 已验证的 DSL 形态(集成测试锁定)
+
+- **Ecto.Schema**:`use` → `schema "users" do field :name, :string … end` → `@before_compile`
+  读累积字段 → 生成 `__schema__(:fields)` + `defstruct`,`%User{…}` 可构造。
+- **Phoenix.Router**:`use` → 嵌套 `scope "/api" do get "/users", :h end` → 路由累积。
+- **Ecto.Query**:`from u in "users", where: u > 1, select: u` 宏拿到的正是
+  `{:in,[],[{:u,[],nil},"users"]}` + 关键字列表,与真实 Ecto 一致。
+
+### 仍未做(宏相关的次要项)
+
+- 宏卫生(hygiene)/ `var!` —— 当前变量按名字直传,非真正卫生;多数 DSL 不依赖。
+- `@after_compile` / `@on_definition`;`__CALLER__` 仅给出 ctx 模块,非真实调用点 env。
+- WASM bundle 仍无 macro runner(宏只在宿主展开,这与 AOT 模型一致,边缘端跑展开后的产物)。
+- 插值在 `quote` 里用内部 `__istring__` 编码,非真实 `<<>>`/`Kernel.to_string` 形式
+  (功能等价,但宏若内省插值结构会看到不同形状)。
+
+---
+
+## 与 Elixir 的兼容性缺口(历史快照,宏部分见上)
 
 按**影响程度**从大到小。
 
