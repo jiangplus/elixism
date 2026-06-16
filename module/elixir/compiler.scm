@@ -320,7 +320,7 @@
     (((name . arity) . clauses)
      (let* ((kind (caar clauses))
             (argvars (map (lambda (i) (gensym "a")) (iota arity)))
-            (fail '(ex-no-clause))
+            (fail `(ex-no-clause ',mod ',name ,arity))
             (lam `(lambda ,argvars ,(compile-clauses mod clauses argvars fail)))
             (g (fn-gensym mod name arity)))
        (if g

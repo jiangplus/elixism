@@ -21,7 +21,7 @@
   #:use-module (elixir runtime)
   #:use-module ((elixir dispatch) #:select (function-defined?))
   #:export (expand-program *macro-runner* *before-compile-runner*
-            register-macro! macro-defined? reset-macros!))
+            register-macro! macro-defined? reset-macros! macro-arities))
 
 ;;; ----------------------------------------------------------------------
 ;;; Macro registry + the driver-supplied runner
@@ -455,8 +455,16 @@
   (match form
     (('def kind name params _ _)
      (when (memq kind '(defmacro defmacrop))
-       (register-macro! mod name (length params))))
+       (for-each (lambda (a) (register-macro! mod name a)) (macro-arities params))))
     (_ #t)))
+
+;; A macro with default args (`p \\ d`) is callable at every arity from its
+;; required-parameter count up to its full count.
+(define (default-param? p) (match p (('binop "\\\\" . _) #t) (_ #f)))
+(define (macro-arities params)
+  (let ((full (length params))
+        (reqd (length (take-while (lambda (p) (not (default-param? p))) params))))
+    (iota (+ 1 (- full reqd)) reqd)))
 
 ;;; ----------------------------------------------------------------------
 ;;; Macro calls -> invoke the macro at expand time, re-expand the result.

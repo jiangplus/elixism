@@ -594,6 +594,15 @@ M.f()")))
         (ev "defmodule A.B do\ndefstruct n: 0\nend\ndefmodule M do\nalias A.B\ndef mk(x), do: %B{n: x}\ndef get(%B{n: n}), do: n\nend\nM.get(M.mk(7))")))
      (deftest "binary size(N) segment"
        (assert-equal 258 (ev "<<hi, lo>> = <<1::size(8), 2::size(8)>>\nhi * 256 + lo")))
+     (deftest "macro with default arg, called at lower arity"
+       (assert-equal "{1, 2, nil}"
+        (ev* "defmodule M do
+defmacrop wrap(a, b, c \\\\ nil) do
+quote do: {unquote(a), unquote(b), unquote(c)}
+end
+def g, do: wrap(1, 2)
+end
+M.g()")))
      (deftest "module-level compile-time if selects defs"
        (assert-equal 'new
         (ev "defmodule M do\nif function_exported?(Enum, :map, 2) do\ndef which, do: :new\nelse\ndef which, do: :old\nend\nend\nM.which()")))

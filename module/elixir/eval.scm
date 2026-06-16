@@ -392,7 +392,8 @@
             (macros (filter macro-def? forms)))
        (when (pair? macros)
          (for-each (lambda (m)
-                     (match m (('def _ nm ps _ _) (register-macro! mod nm (length ps)))))
+                     (match m (('def _ nm ps _ _)
+                               (for-each (lambda (a) (register-macro! mod nm a)) (macro-arities ps)))))
                    macros)
          ;; compile the macros (as plain defs) in their module and install them
          (let* ((defs (map (lambda (m) (match m (('def _ nm ps g b) `(def def ,nm ,ps ,g ,b)))) macros))

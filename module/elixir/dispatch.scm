@@ -165,7 +165,9 @@
   (ex-raise (make-tuple 'UndefinedFunctionError
                         (string-append (symbol->string mod) "." (symbol->string name)
                                        "/" (number->string arity)))))
-(define (ex-no-clause)   (ex-raise (make-tuple 'FunctionClauseError "no clause matched")))
+(define* (ex-no-clause #:optional mod name arity)
+  (ex-raise (make-tuple 'FunctionClauseError
+                        (if mod (format #f "~a.~a/~a" mod name arity) "no clause matched"))))
 (define (ex-case-error)  (ex-raise (make-tuple 'CaseClauseError "no case clause matched")))
 (define (ex-cond-error)  (ex-raise (make-tuple 'CondClauseError "no cond clause matched")))
 (define (ex-match-error) (ex-raise (make-tuple 'MatchError "no match of right hand side value")))
