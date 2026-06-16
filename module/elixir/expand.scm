@@ -18,7 +18,9 @@
 (define-module (elixir expand)
   #:use-module (srfi srfi-1)
   #:use-module (ice-9 match)
-  #:export (expand-program *macro-runner* register-macro! macro-defined?))
+  #:use-module (elixir runtime)
+  #:export (expand-program *macro-runner* *before-compile-runner*
+            register-macro! macro-defined?))
 
 ;;; ----------------------------------------------------------------------
 ;;; Macro registry + the driver-supplied runner
@@ -158,21 +160,115 @@
        (for-each (lambda (f) (register-defmacro! mod f)) forms)
        (let ((atbl (make-hash-table)))
          (for-each (lambda (f) (collect-alias-form f atbl)) forms)
-         (parameterize ((*aliases* atbl))
-           ;; drop alias/import/require directives; `use`/macro expansions inject
-           ;; a (block …) of defs, flattened up to ordinary module forms.
-           `(block ,(append-map
-                     (lambda (f)
-                       (if (directive-form? f) '()
-                           (flatten-form (expand-expr f mod))))
-                     forms)))))
+         (module-attrs-reset! mod)
+         ;; *imports* holds a mutable box so a `use`/`import` encountered partway
+         ;; through the body affects the macro resolution of later forms.
+         (parameterize ((*aliases* atbl)
+                        (*imports* (vector (filter-map import-form-module forms))))
+           (expand-module-forms forms mod))))
       (_ (register-defmacro! mod body)
          `(block ,(flatten-form (expand-expr body mod)))))))
+
+;; Expand a module's forms top-to-bottom, threading: live imports (a box, so
+;; use-injected imports affect later forms), the compile-time attribute store,
+;; and the @before_compile hook list (run at the end to generate extra defs).
+(define (expand-module-forms forms mod)
+  (let loop ((fs forms) (out '()) (before '()))
+    (if (null? fs)
+        (let ((generated (append-map (lambda (h) (run-before-compile h mod)) (reverse before))))
+          `(block ,(append (reverse out) generated)))
+        (let ((f (car fs)))
+          (if (directive-form? f)
+              (begin (add-import! f) (loop (cdr fs) out before))
+              (let inner ((ss (flatten-form (expand-expr f mod))) (out out) (before before))
+                (if (null? ss)
+                    (loop (cdr fs) out before)
+                    (let ((ef (car ss)))
+                      (cond
+                       ((directive-form? ef) (add-import! ef) (inner (cdr ss) out before))
+                       ((before-compile-hook ef)
+                        => (lambda (h) (inner (cdr ss) out (cons h before))))
+                       ((exec-attr-op! ef mod) (inner (cdr ss) out before))
+                       (else (inner (cdr ss) (cons ef out) before)))))))))))
+
+;; Register an `import Mod` (static or use-injected) into the live import box.
+(define (add-import! f)
+  (let ((im (import-form-module f)) (box (*imports*)))
+    (when (and im (vector? box))
+      (vector-set! box 0 (cons im (vector-ref box 0))))))
+
+;;; ---- compile-time attribute ops (executed during expansion) ----------------
+
+;; If `ef` is @before_compile Mod (or {Mod, fun}), return the hook module; else #f.
+(define (before-compile-hook ef)
+  (match ef
+    (('attr-set 'before_compile ('alias parts)) (alias->sym `(alias ,parts)))
+    (('attr-set 'before_compile ('var '__MODULE__)) 'self)
+    (_ #f)))
+
+;; Execute a compile-time attribute op against the store; return #t if handled.
+(define (exec-attr-op! ef mod)
+  (match ef
+    (('remote ('alias ('Module)) 'register_attribute (_ ('atom name) opts))
+     (module-register-attribute! mod name (kw-accumulate? opts)) #t)
+    (('remote ('alias ('Module)) 'put_attribute (_ ('atom name) val . _))
+     (module-put-attribute! mod name (ast->value val mod)) #t)
+    ;; accumulating @attr value: mirror into the store (so before_compile sees it)
+    (('attr-set name value)
+     (cond ((eq? name 'before_compile) #f)        ; handled separately
+           ((module-accumulating? mod name)
+            (module-put-attribute! mod name (ast->value value mod)) #t)
+           (else #f)))
+    (_ #f)))
+
+;; A keyword option, from either a source `(kwlist …)` or the list-of-2-tuples
+;; form a keyword list takes after a quote/term round-trip.
+(define (kw-opt-ref opts key)
+  (match opts
+    (('kwlist pairs) (let ((q (assq key pairs))) (and q (cdr q))))
+    (('list elts #f)
+     (any (lambda (e) (match e (('tuple (('atom k) v)) (and (eq? k key) v)) (_ #f))) elts))
+    (_ #f)))
+
+(define (kw-accumulate? opts) (equal? (kw-opt-ref opts 'accumulate) '(atom true)))
+
+;; The driver installs this: (hook-module target-module) -> result-ast.  It
+;; invokes hook-module.__before_compile__ with a real %Macro.Env{} value (NOT a
+;; quoted term), as Elixir does, so the hook can read env.module.
+(define *before-compile-runner* (make-parameter #f))
+
+;; Invoke a @before_compile hook and return the generated module forms.
+(define (run-before-compile hook mod)
+  (let ((hookmod (if (eq? hook 'self) mod hook))
+        (run (*before-compile-runner*)))
+    (if (and run (macro-defined? hookmod '__before_compile__ 1))
+        (flatten-form (expand-expr (run hookmod mod) mod))
+        '())))
+
+;; A small literal evaluator: compile-time attribute values are data literals.
+(define (ast->value a mod)
+  (match a
+    (('integer n) n) (('float x) x) (('string s) s)
+    (('atom s) s) (('charlist s) (string->charlist s))
+    (('var '__MODULE__) mod)
+    (('alias parts) (alias->sym `(alias ,parts)))
+    (('list elts #f) (map (lambda (e) (ast->value e mod)) elts))
+    (('tuple elts) (apply make-tuple (map (lambda (e) (ast->value e mod)) elts)))
+    (('kwlist pairs) (map (lambda (kv) (make-tuple (car kv) (ast->value (cdr kv) mod))) pairs))
+    (('map pairs) (alist->emap (map (lambda (kv) (cons (ast->value (car kv) mod)
+                                                       (ast->value (cdr kv) mod))) pairs)))
+    (_ (error "compile-time attribute value must be a literal" a))))
 
 ;; ---- alias resolution -------------------------------------------------------
 ;; Module-scoped short-name -> full-path table; references whose first segment is
 ;; aliased expand to the full path (alias Foo.Bar  =>  Bar resolves to Foo.Bar).
 (define *aliases* (make-parameter #f))
+;; Modules brought into scope by `import`; a bare macro call resolves against
+;; them when it isn't a local macro.  Holds a 1-slot vector (a mutable box) so
+;; imports injected mid-body affect later forms; #f outside a module.
+(define *imports* (make-parameter #f))
+(define (current-imports)
+  (let ((b (*imports*))) (if (vector? b) (vector-ref b 0) '())))
 
 (define (resolve-alias parts)
   (let ((tbl (*aliases*)))
@@ -184,6 +280,19 @@
   (match f
     (('call (and d (or 'alias 'import 'require)) . _) (and d #t))
     (_ #f)))
+
+;; `import Foo.Bar[, opts]` -> the module symbol (resolved through aliases).
+(define (import-form-module f)
+  (match f
+    (('call 'import (('alias parts) . _))
+     (alias->sym `(alias ,(resolved-parts parts))))
+    (_ #f)))
+
+(define (resolved-parts parts)
+  (let ((tbl (*aliases*)))
+    (if (and tbl (pair? parts) (hash-ref tbl (car parts) #f))
+        (append (hash-ref tbl (car parts) #f) (cdr parts))
+        parts)))
 
 (define (collect-alias-form f tbl)
   (match f
@@ -242,7 +351,13 @@
      ((and run (eq? name 'use)) (expand-use args ctx))
      ((and run (macro-defined? ctx name arity))
       (expand-expr (run ctx name arity args) ctx))
+     ;; a bare call that resolves to a macro of an imported module
+     ((and run (imported-macro-module name arity))
+      => (lambda (mod) (expand-expr (run mod name arity args) ctx)))
      (else `(call ,name ,(map (lambda (a) (expand-expr a ctx)) args))))))
+
+(define (imported-macro-module name arity)
+  (find (lambda (m) (macro-defined? m name arity)) (current-imports)))
 
 (define (expand-use args ctx)
   (match args

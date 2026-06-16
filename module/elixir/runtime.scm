@@ -52,7 +52,50 @@
             ;; inspection
             inspect ex->display
             ;; errors
-            ex-raise ex-error ex-try elixir-error? elixir-error-payload))
+            ex-raise ex-error ex-try elixir-error? elixir-error-payload
+            ;; compile-time module attribute store (shared by expander + Module.*)
+            module-attrs-reset! module-register-attribute! module-accumulating?
+            module-put-attribute! module-get-attribute module-attr-defined?))
+
+;;; ----------------------------------------------------------------------
+;;; Compile-time module attribute store
+;;; ----------------------------------------------------------------------
+;;; A module's @attributes are a compile-time concept.  The expander populates
+;;; this store while expanding a module (executing `Module.put_attribute` and
+;;; accumulating `@attr` writes at expand time), and `@before_compile` hooks
+;;; read it back to generate code.  Keyed by (module . attr-name).
+(define *mod-attr-table* (make-hash-table))   ; (mod . name) -> value | reversed-list
+(define *mod-accum-table* (make-hash-table))  ; (mod . name) -> #t (accumulating)
+
+(define (module-attrs-reset! mod)
+  (hash-for-each (lambda (k _) (when (eq? (car k) mod) (hash-remove! *mod-attr-table* k)))
+                 *mod-attr-table*)
+  (hash-for-each (lambda (k _) (when (eq? (car k) mod) (hash-remove! *mod-accum-table* k)))
+                 *mod-accum-table*))
+
+(define (module-register-attribute! mod name accumulate?)
+  (when accumulate?
+    (hash-set! *mod-accum-table* (cons mod name) #t)
+    (unless (hash-ref *mod-attr-table* (cons mod name) #f)
+      (hash-set! *mod-attr-table* (cons mod name) '()))))
+
+(define (module-accumulating? mod name) (hash-ref *mod-accum-table* (cons mod name) #f))
+(define (module-attr-defined? mod name) (and (hash-get-handle *mod-attr-table* (cons mod name)) #t))
+
+(define (module-put-attribute! mod name val)
+  (let ((key (cons mod name)))
+    (if (module-accumulating? mod name)
+        (hash-set! *mod-attr-table* key (cons val (or (hash-ref *mod-attr-table* key #f) '())))
+        (hash-set! *mod-attr-table* key val)))
+  'nil)
+
+;; Accumulating attributes read back in insertion order (Elixir prepends, but
+;; exposes them in the order written); single-valued ones read their value.
+(define (module-get-attribute mod name)
+  (let ((key (cons mod name)))
+    (if (module-accumulating? mod name)
+        (reverse (or (hash-ref *mod-attr-table* key #f) '()))
+        (hash-ref *mod-attr-table* key 'nil))))
 
 ;;; ----------------------------------------------------------------------
 ;;; Tuples

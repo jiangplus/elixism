@@ -364,6 +364,16 @@
 (define (host-macro-runner mod name arity arg-asts)
   (term->ast (ex-call-remote mod name (map ast->term arg-asts))))
 
+;; Invoked by the expander to run a @before_compile hook: call
+;; hookmod.__before_compile__ with a real %Macro.Env{module: targetmod}.
+(define (host-before-compile-runner hookmod targetmod)
+  (let ((env (alist->emap (list (cons '__struct__ 'Macro.Env)
+                                (cons 'module targetmod)
+                                (cons 'function 'nil)
+                                (cons 'file "nofile")
+                                (cons 'line 0)))))
+    (term->ast (ex-call-remote hookmod '__before_compile__ (list env)))))
+
 ;; Compile+install every defmacro so it is callable during expansion.
 (define (install-macros! ast)
   (match ast
@@ -393,7 +403,8 @@
 (define (host-compile src)
   (let ((ast (parse src)))
     (install-macros! ast)
-    (parameterize ((*macro-runner* host-macro-runner))
+    (parameterize ((*macro-runner* host-macro-runner)
+                   (*before-compile-runner* host-before-compile-runner))
       (compile-program (expand-program ast)))))
 
 ;; Compile the emitted Scheme to a *thunk* of VM bytecode.  We compile

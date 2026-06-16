@@ -322,6 +322,136 @@ def go, do: M.plus(3 * 3, 1)
 end
 N.go")))
 
+     ;; --- macro engine: full quote coverage, bind_quoted, dynamic defs,
+     ;;     import, Macro.escape, @before_compile (Phoenix/Ecto building blocks) ---
+     (deftest "quote a case (control form)"
+       (assert-equal 'two
+        (ev "defmodule M do
+defmacro classify(x) do
+quote do
+case unquote(x) do
+2 -> :two
+_ -> :other
+end
+end
+end
+end
+defmodule U do
+require M
+def go(n), do: M.classify(n)
+end
+U.go(2)")))
+     (deftest "quote do: keyword form"
+       (assert-equal "{:+, [], [1, 2]}" (ev* "quote do: 1 + 2")))
+     (deftest "unquote_splicing into a list"
+       (assert-equal 10
+        (ev "defmodule M do
+defmacro sum(ns) do
+quote do: Enum.sum([unquote_splicing(ns)])
+end
+end
+defmodule U do
+require M
+def go, do: M.sum([1, 2, 3, 4])
+end
+U.go")))
+     (deftest "def unquote(name)() dynamic injection"
+       (assert-equal "Ann"
+        (ev "defmodule Gen do
+defmacro getters(fields) do
+for f <- fields do
+name = String.to_atom(\"get_\" <> Atom.to_string(f))
+quote do
+def unquote(name)(m), do: Map.get(m, unquote(f))
+end
+end
+end
+end
+defmodule S do
+require Gen
+Gen.getters([:name, :age])
+end
+S.get_name(%{name: \"Ann\", age: 30})")))
+     (deftest "bind_quoted"
+       (assert-equal 16
+        (ev "defmodule M do
+defmacro sq(x) do
+quote bind_quoted: [v: x] do
+v * v
+end
+end
+end
+defmodule U do
+require M
+def go, do: M.sq(2 + 2)
+end
+U.go")))
+     (deftest "import makes a macro callable by bare name"
+       (assert-equal 42
+        (ev "defmodule Macros do
+defmacro double(x) do
+quote do: unquote(x) * 2
+end
+end
+defmodule U do
+import Macros
+def go(n), do: double(n)
+end
+U.go(21)")))
+     (deftest "Macro.escape round-trips a value"
+       (assert-equal "{:a, [1, 2], %{k: :v}}"
+        (ev* "defmodule M do
+defmacro lit do
+v = {:a, [1, 2], %{k: :v}}
+quote do: unquote(Macro.escape(v))
+end
+end
+defmodule U do
+require M
+def go, do: M.lit()
+end
+U.go")))
+     (deftest "__MODULE__ resolves in injected context"
+       (assert-equal 'U
+        (ev "defmodule M do
+defmacro who do
+quote do: __MODULE__
+end
+end
+defmodule U do
+require M
+def go, do: M.who()
+end
+U.go")))
+     (deftest "@before_compile + accumulate (Ecto.Schema pattern)"
+       (assert-equal "[{:name, :string}, {:age, :integer}]"
+        (ev* "defmodule Sch do
+defmacro __using__(_) do
+quote do
+import Sch
+Module.register_attribute(__MODULE__, :fields, accumulate: true)
+@before_compile Sch
+end
+end
+defmacro field(n, t) do
+quote do
+Module.put_attribute(__MODULE__, :fields, {unquote(n), unquote(t)})
+end
+end
+defmacro __before_compile__(env) do
+fs = Module.get_attribute(env.module, :fields)
+quote do
+def __fields__, do: unquote(Macro.escape(fs))
+end
+end
+end
+defmodule User do
+use Sch
+field(:name, :string)
+field(:age, :integer)
+end
+User.__fields__()")))
+
      ;; --- module attributes (@-attrs) ---
      (deftest "attribute read"
        (assert-equal 5000 (ev "defmodule M do

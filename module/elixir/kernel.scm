@@ -44,7 +44,27 @@
   (install-supervisor!)
   (install-store!)
   (install-bitwise!)
+  (install-macro!)
+  (install-module-attrs!)
   'ok)
+
+;;; Module — the compile-time attribute API.  These run during expansion (when
+;;; macro bodies / DSL forms execute) and mutate the shared attribute store that
+;;; @before_compile hooks read back.  The `mod` argument is honoured so multiple
+;;; modules don't collide.
+(define (install-module-attrs!)
+  (defn 'Module 'put_attribute 3
+    (lambda (mod name val) (module-put-attribute! mod name val)))
+  (defn 'Module 'get_attribute 2
+    (lambda (mod name) (module-get-attribute mod name)))
+  (defn 'Module 'get_attribute 3
+    (lambda (mod name _default) (module-get-attribute mod name)))
+  (defn 'Module 'register_attribute 3
+    (lambda (mod name opts)
+      (module-register-attribute! mod name (ex-truthy? (kw-get opts 'accumulate 'false)))
+      'nil))
+  (defn 'Module 'has_attribute? 2
+    (lambda (mod name) (->ex-bool (module-attr-defined? mod name)))))
 
 ;; Bitwise (Elixir's Bitwise module).  The <<< >>> &&& ||| ^^^ operators compile
 ;; directly (compiler.scm); these are the function forms.
@@ -57,6 +77,54 @@
   (defn 'Bitwise 'bsr  2 (lambda (a n) (ash a (- n)))))
 
 (define (defn mod name arity proc) (register-builtin! mod name arity proc))
+
+;;; Macro — compile-time AST helpers callable from macro bodies.
+(define (install-macro!)
+  (defn 'Macro 'escape 1 (lambda (v) (ex-macro-escape v)))
+  (defn 'Macro 'escape 2 (lambda (v _opts) (ex-macro-escape v)))
+  ;; Macro.var(name, context) -> {name, [], context}
+  (defn 'Macro 'var 2 (lambda (name ctx) (make-tuple name '() ctx)))
+  ;; Macro.expand/expand_once: best-effort — resolve an __aliases__ form to its
+  ;; module atom, otherwise return the AST unchanged.
+  (defn 'Macro 'expand 2 (lambda (ast _env) (macro-expand-alias ast)))
+  (defn 'Macro 'expand_once 2 (lambda (ast _env) (macro-expand-alias ast)))
+  (defn 'Macro 'to_string 1 (lambda (ast) (ex-macro-to-string ast))))
+
+;; Macro.escape: turn a runtime value into a quoted literal that rebuilds it.
+(define (ex-macro-escape v)
+  (cond
+    ((tuple? v)
+     (if (= (tuple-size v) 2)
+         (make-tuple (ex-macro-escape (tuple-ref v 0)) (ex-macro-escape (tuple-ref v 1)))
+         (make-tuple (string->symbol "{}") '() (map ex-macro-escape (tuple->list v)))))
+    ((pair? v) (cons (ex-macro-escape (car v)) (ex-macro-escape (cdr v))))
+    ((null? v) '())
+    ((emap? v)
+     (make-tuple (string->symbol "%{}") '()
+                 (map (lambda (kv) (make-tuple (ex-macro-escape (car kv)) (ex-macro-escape (cdr kv))))
+                      (emap->alist v))))
+    (else v)))
+
+(define (macro-expand-alias ast)
+  (if (and (tuple? ast) (= (tuple-size ast) 3) (eq? (tuple-ref ast 0) '__aliases__))
+      (string->symbol (string-join (map symbol->string (tuple-ref ast 2)) "."))
+      ast))
+
+;; A crude Macro.to_string — enough for diagnostics, not a faithful printer.
+(define (ex-macro-to-string ast)
+  (cond
+    ((symbol? ast) (symbol->string ast))
+    ((string? ast) (string-append "\"" ast "\""))
+    ((number? ast) (number->string ast))
+    ((null? ast) "[]")
+    ((and (tuple? ast) (= (tuple-size ast) 3) (eq? (tuple-ref ast 0) '__aliases__))
+     (string-join (map symbol->string (tuple-ref ast 2)) "."))
+    ((and (tuple? ast) (= (tuple-size ast) 3) (symbol? (tuple-ref ast 0))
+          (list? (tuple-ref ast 2)))
+     (string-append (symbol->string (tuple-ref ast 0))
+                    "(" (string-join (map ex-macro-to-string (tuple-ref ast 2)) ", ") ")"))
+    ((pair? ast) (string-append "[" (string-join (map ex-macro-to-string ast) ", ") "]"))
+    (else (inspect ast))))
 
 ;;; ----------------------------------------------------------------------
 ;;; Store — a process-free persistent key-value store.  Unlike a GenServer
