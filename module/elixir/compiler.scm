@@ -184,6 +184,8 @@
                    (*records* (collect-records forms)))
       `(begin
          (register-module! ',mod)
+         ,@(let ((imps (append-map (lambda (f) (match f (('import-decl m) m) (_ '()))) forms)))
+             (if (null? imps) '() `((register-module-imports! ',mod ',imps))))
          ,@(map (lambda (s) (compile-defstruct mod s)) structs)
          ,@(map (lambda (g) (compile-function-group mod g)) groups)
          ',mod))))
@@ -608,6 +610,8 @@
                                            ,(compile-expr (cdr kv) ctx)))
                                   pairs))))
     (('alias parts) `',(string->symbol (string-join (map symbol->string parts) ".")))
+    ;; top-level import directive: register imports for the implicit Elixir module
+    (('import-decl mods) `(register-module-imports! 'Elixir ',mods))
     (('binop op l r) (compile-binop op l r ctx))
     (('unop op x) (compile-unop op x ctx))
     (('match pat expr) (compile-match pat expr ctx))

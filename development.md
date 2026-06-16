@@ -113,8 +113,25 @@
 - **Ecto.Query**:`from u in "users", where: u > 1, select: u` 宏拿到的正是
   `{:in,[],[{:u,[],nil},"users"]}` + 关键字列表,与真实 Ecto 一致。
 
-### 仍未做(宏相关的次要项)
+### 模块系统补全(本轮)
 
+- **`import` 函数绑定**:`import Mod` 后裸名可调用 Mod 的**函数**(此前只有宏)。
+  运行时维护 `module-imports`(`dispatch.scm`),`ex-call-local` 找不到本地/Kernel 时
+  回退到导入模块。`only:`/`except:` 解析但不强制(更宽松,跑通合法程序无碍)。
+- **顶层 `alias` / `import`**:`alias Enum, as: E` 后 `E.map(...)` 可解析;顶层 import
+  注册到隐式 `Elixir` 模块。
+- **嵌套 `defmodule`**:`defmodule Outer do defmodule Inner do … end end` —— Inner 被提升
+  到顶层并限定名为 `Outer.Inner`,Outer 内用短名 `Inner` 经 alias 解析。提升模块放在程序
+  块**最前**,不影响脚本返回值。
+- **`defdelegate name(args), to: M[, as: real]`**:展开为转发 def。
+- **`Module.concat`/`split`/`safe_concat`、`function_exported?/3`、`apply/2,3`**。
+- **修了潜在 bug**:`*macros*` 注册表跨程序泄漏 —— host 每次编译前 `reset-macros!`
+  (否则前一程序的 `defmacro M.foo` 会让后一程序的同名函数调用误当宏展开)。
+
+### 仍未做(宏/模块相关的次要项)
+
+- 嵌套模块内的宏不被 `install-macros!` 安装(只扫顶层模块);嵌套模块**函数**正常。
+- `import` 的 `only:`/`except:` 不强制过滤;无 `import` 的 `:macros`/`:functions` 选择。
 - 宏卫生(hygiene)/ `var!` —— 当前变量按名字直传,非真正卫生;多数 DSL 不依赖。
 - `@after_compile` / `@on_definition`;`__CALLER__` 仅给出 ctx 模块,非真实调用点 env。
 - WASM bundle 仍无 macro runner(宏只在宿主展开,这与 AOT 模型一致,边缘端跑展开后的产物)。

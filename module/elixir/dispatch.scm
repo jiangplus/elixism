@@ -16,6 +16,7 @@
             ex-apply ex-call-local ex-call-remote ex-fun-ref
             ex-no-clause ex-case-error ex-cond-error ex-match-error
             function-defined? reset-registry!
+            register-module-imports! module-imports
             register-struct! ex-make-struct struct-defaults
             register-protocol-impl! ex-protocol-dispatch ex-type-tag
             ;; for Kernel registration:
@@ -37,10 +38,18 @@
 ;; (protocol type name arity) -> impl procedure
 (define *proto-impls* (make-hash-table))
 
+;; module-sym -> list of imported module-syms (lexical `import`s).  A bare local
+;; call that the module doesn't define falls back through these.
+(define *module-imports* (make-hash-table))
+(define (register-module-imports! mod mods)
+  (hashq-set! *module-imports* mod mods) mod)
+(define (module-imports mod) (hashq-ref *module-imports* mod '()))
+
 (define (reset-registry!)
   (set! *registry* (make-hash-table))
   (set! *structs* (make-hash-table))
-  (set! *proto-impls* (make-hash-table)))
+  (set! *proto-impls* (make-hash-table))
+  (set! *module-imports* (make-hash-table)))
 
 (define (register-protocol-impl! proto type name arity proc)
   (hash-set! *proto-impls* (list proto type name arity) proc) proc)
@@ -120,8 +129,16 @@
   (reduce!)                              ; reduction-counted pre-emption
   (let* ((arity (length args))
          (p (or (lookup-function mod name arity)
-                (lookup-function 'Kernel name arity))))
+                (lookup-function 'Kernel name arity)
+                (lookup-import mod name arity))))
     (if p (apply p args) (ex-undefined mod name arity))))
+
+;; Resolve a bare call against the module's lexical imports (first match wins).
+(define (lookup-import mod name arity)
+  (let loop ((imps (hashq-ref *module-imports* mod '())))
+    (and (pair? imps)
+         (or (lookup-function (car imps) name arity)
+             (loop (cdr imps))))))
 
 ;; Remote call: Mod.fun(args), with Kernel fallback for built-ins.
 (define (ex-call-remote mod name args)

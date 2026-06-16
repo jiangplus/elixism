@@ -20,7 +20,7 @@
   #:use-module (ice-9 match)
   #:use-module (elixir runtime)
   #:export (expand-program *macro-runner* *before-compile-runner*
-            register-macro! macro-defined?))
+            register-macro! macro-defined? reset-macros!))
 
 ;;; ----------------------------------------------------------------------
 ;;; Macro registry + the driver-supplied runner
@@ -28,6 +28,7 @@
 
 ;; (mod . (name . arity)) -> #t   ; which (module,name,arity) are macros
 (define *macros* (make-hash-table))
+(define (reset-macros!) (set! *macros* (make-hash-table)))
 (define (register-macro! mod name arity)
   (hash-set! *macros* (list mod name arity) #t))
 (define (macro-defined? mod name arity)
@@ -43,12 +44,25 @@
 
 (define (expand-program ast)
   (match ast
-    ;; drop top-level alias/import/require directives (they only matter inside a
-    ;; module); expand the rest.
+    ;; Top-level alias/import affect the implicit Elixir module: collect them,
+    ;; resolve aliases in the rest, and register imports for bare-call fallback.
     (('block forms)
-     `(block ,(append-map
-               (lambda (f) (if (directive-form? f) '() (flatten-form (expand-expr f 'Elixir))))
-               forms)))
+     (let ((atbl (make-hash-table)) (hoist (vector '())))
+       (for-each (lambda (f) (collect-alias-form f atbl)) forms)
+       (parameterize ((*aliases* atbl)
+                      (*imports* (vector (filter-map import-form-module forms)))
+                      (*module-hoist* hoist))
+         (let* ((imps (current-imports))
+                (expanded (append-map
+                           (lambda (f) (if (directive-form? f) '()
+                                           (flatten-form (expand-expr f 'Elixir))))
+                           forms)))
+           ;; hoisted nested modules go *first* (so they don't become the
+           ;; program's final return value), then imports, then user forms.
+           `(block ,(append
+                     (reverse (vector-ref hoist 0))
+                     (if (null? imps) '() (list `(import-decl ,imps)))
+                     expanded))))))
     (_ (expand-expr ast 'Elixir))))
 
 ;;; ----------------------------------------------------------------------
@@ -154,42 +168,61 @@
               (_ node)))
 
 (define (expand-module-body name body)
-  (let ((mod (alias->sym name)))
-    (match body
-      (('block forms)
-       (for-each (lambda (f) (register-defmacro! mod f)) forms)
-       (let ((atbl (make-hash-table)))
-         (for-each (lambda (f) (collect-alias-form f atbl)) forms)
-         (module-attrs-reset! mod)
-         ;; *imports* holds a mutable box so a `use`/`import` encountered partway
-         ;; through the body affects the macro resolution of later forms.
-         (parameterize ((*aliases* atbl)
-                        (*imports* (vector (filter-map import-form-module forms))))
-           (expand-module-forms forms mod))))
-      (_ (register-defmacro! mod body)
-         `(block ,(flatten-form (expand-expr body mod)))))))
+  (let* ((mod (alias->sym name))
+         ;; a single-statement body parses bare (not wrapped in a block)
+         (forms (match body (('block fs) fs) (_ (list body))))
+         (outer-parts (match name (('alias ps) ps) (_ (list mod))))
+         (atbl (make-hash-table)))
+    (for-each (lambda (f) (register-defmacro! mod f)) forms)
+    (for-each (lambda (f) (collect-alias-form f atbl)) forms)
+    (module-attrs-reset! mod)
+    ;; *imports* holds a mutable box so a `use`/`import` encountered partway
+    ;; through the body affects the macro resolution of later forms.
+    (parameterize ((*aliases* atbl)
+                   (*imports* (vector (filter-map import-form-module forms))))
+      (expand-module-forms forms mod outer-parts atbl))))
 
 ;; Expand a module's forms top-to-bottom, threading: live imports (a box, so
 ;; use-injected imports affect later forms), the compile-time attribute store,
 ;; and the @before_compile hook list (run at the end to generate extra defs).
-(define (expand-module-forms forms mod)
+;; A nested `defmodule` is hoisted to the top level with a qualified name and
+;; aliased so siblings can reach it by its short name.
+(define (expand-module-forms forms mod outer-parts atbl)
   (let loop ((fs forms) (out '()) (before '()))
     (if (null? fs)
-        (let ((generated (append-map (lambda (h) (run-before-compile h mod)) (reverse before))))
-          `(block ,(append (reverse out) generated)))
+        (let ((generated (append-map (lambda (h) (run-before-compile h mod)) (reverse before)))
+              (imps (current-imports)))
+          `(block ,(append (if (null? imps) '() (list `(import-decl ,imps)))
+                           (reverse out) generated)))
         (let ((f (car fs)))
-          (if (directive-form? f)
-              (begin (add-import! f) (loop (cdr fs) out before))
-              (let inner ((ss (flatten-form (expand-expr f mod))) (out out) (before before))
-                (if (null? ss)
-                    (loop (cdr fs) out before)
-                    (let ((ef (car ss)))
-                      (cond
-                       ((directive-form? ef) (add-import! ef) (inner (cdr ss) out before))
-                       ((before-compile-hook ef)
-                        => (lambda (h) (inner (cdr ss) out (cons h before))))
-                       ((exec-attr-op! ef mod) (inner (cdr ss) out before))
-                       (else (inner (cdr ss) (cons ef out) before)))))))))))
+          (cond
+           ((directive-form? f) (add-import! f) (loop (cdr fs) out before))
+           ((nested-defmodule f)
+            => (lambda (p+b)
+                 (let* ((iparts (car p+b)) (qparts (append outer-parts iparts)))
+                   (when atbl (hash-set! atbl (last iparts) qparts))
+                   (hoist-module! (expand-expr `(defmodule (alias ,qparts) ,(cdr p+b)) mod))
+                   (loop (cdr fs) out before))))
+           (else
+            (let inner ((ss (flatten-form (expand-expr f mod))) (out out) (before before))
+              (if (null? ss)
+                  (loop (cdr fs) out before)
+                  (let ((ef (car ss)))
+                    (cond
+                     ((directive-form? ef) (add-import! ef) (inner (cdr ss) out before))
+                     ((before-compile-hook ef)
+                      => (lambda (h) (inner (cdr ss) out (cons h before))))
+                     ((exec-attr-op! ef mod) (inner (cdr ss) out before))
+                     (else (inner (cdr ss) (cons ef out) before))))))))))))
+
+(define (nested-defmodule f)
+  (match f (('defmodule ('alias parts) body) (cons parts body)) (_ #f)))
+
+;; Collected top-level modules lifted out of enclosing modules (a 1-slot box).
+(define *module-hoist* (make-parameter #f))
+(define (hoist-module! form)
+  (let ((box (*module-hoist*)))
+    (when (vector? box) (vector-set! box 0 (cons form (vector-ref box 0))))))
 
 ;; Register an `import Mod` (static or use-injected) into the live import box.
 (define (add-import! f)
@@ -348,6 +381,7 @@
      ;; `use Mod[, opts]` -> invoke Mod.__using__(opts) and splice the result
      ;; (Elixir's code-injection model).  Mods with no user __using__ (e.g.
      ;; GenServer, modeled natively) are ignored.
+     ((eq? name 'defdelegate) (expand-defdelegate args ctx))
      ((and run (eq? name 'use)) (expand-use args ctx))
      ((and run (macro-defined? ctx name arity))
       (expand-expr (run ctx name arity args) ctx))
@@ -358,6 +392,31 @@
 
 (define (imported-macro-module name arity)
   (find (lambda (m) (macro-defined? m name arity)) (current-imports)))
+
+;; defdelegate name(args), to: Target[, as: real]  ->  a def that forwards.
+(define (expand-defdelegate args ctx)
+  (match args
+    ((sig opts)
+     (let* ((kw (match opts (('kwlist ps) ps) (_ '())))
+            (target (let ((p (assq 'to kw))) (and p (cdr p))))
+            (rtarget (and target (resolve-target target)))
+            (as-pair (assq 'as kw)))
+       (call-with-values (lambda () (sig-name-params sig))
+         (lambda (fname params)
+           (let ((realname (match as-pair ((_ . ('atom a)) a) (_ fname))))
+             `(def def ,fname ,params #f
+                   (remote ,rtarget ,realname ,(map param->arg params))))))))
+    (_ `(call defdelegate ,(map (lambda (a) (expand-expr a ctx)) args)))))
+
+(define (resolve-target t)
+  (match t (('alias parts) (resolve-alias parts)) (_ t)))
+(define (sig-name-params sig)
+  (match sig
+    (('call f ps) (values f ps))
+    (('var f) (values f '()))
+    (_ (error "defdelegate: bad signature" sig))))
+;; a def param pattern -> the matching call argument (vars pass straight through)
+(define (param->arg p) (match p (('binop "\\\\" pat _) pat) (_ p)))
 
 (define (expand-use args ctx)
   (match args

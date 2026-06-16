@@ -406,6 +406,7 @@
 ;; Host compile: install macros, then expand (invoking them) and compile.
 (define (host-compile src)
   (let ((ast (parse src)))
+    (reset-macros!)              ; per-compile: don't leak macros across programs
     (install-macros! ast)
     (parameterize ((*macro-runner* host-macro-runner)
                    (*before-compile-runner* host-before-compile-runner))

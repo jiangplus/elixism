@@ -489,6 +489,51 @@ end
 end
 \"#{User.__source__()}:#{inspect(User.__names__())}\"")))
 
+     ;; --- module system: import functions, alias, nesting, delegate ---
+     (deftest "import a function (bare call)"
+       (assert-equal 11
+        (ev "defmodule Math do
+def add(a, b), do: a + b
+def sub(a, b), do: a - b
+end
+defmodule U do
+import Math
+def go, do: add(2, 3) + sub(10, 4)
+end
+U.go")))
+     (deftest "top-level alias"
+       (assert-equal "[2, 4, 6]"
+        (ev* "alias Enum, as: E\nE.map([1, 2, 3], fn x -> x * 2 end)")))
+     (deftest "nested defmodule (qualified)"
+       (assert-equal 'inner
+        (ev "defmodule Outer do
+defmodule Inner do
+def hi, do: :inner
+end
+def go, do: Inner.hi()
+end
+Outer.Inner.hi()")))
+     (deftest "defdelegate"
+       (assert-equal 30
+        (ev "defmodule Math do
+def add(a, b), do: a + b
+end
+defmodule M do
+defdelegate add(a, b), to: Math
+defdelegate plus(a, b), to: Math, as: :add
+end
+M.add(10, 5) + M.plus(10, 5)")))
+     (deftest "function_exported?"
+       (assert-equal 'true
+        (ev "defmodule M do
+def foo, do: 1
+end
+function_exported?(M, :foo, 0)")))
+     (deftest "Module.concat / split / apply"
+       (assert-equal 'A.B.C (ev "Module.concat([A, B, C])")))
+     (deftest "apply/3"
+       (assert-equal 6 (ev "apply(Enum, :sum, [[1, 2, 3]])")))
+
      ;; --- module attributes (@-attrs) ---
      (deftest "attribute read"
        (assert-equal 5000 (ev "defmodule M do

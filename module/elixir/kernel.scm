@@ -46,7 +46,38 @@
   (install-bitwise!)
   (install-macro!)
   (install-module-attrs!)
+  (install-introspection!)
   'ok)
+
+;;; Introspection / reflection — Module name helpers, apply, exported checks.
+(define (install-introspection!)
+  (defn 'Kernel 'apply 3 (lambda (m f args) (ex-call-remote m f args)))
+  (defn 'Kernel 'apply 2 (lambda (f args) (ex-apply f args)))
+  (defn 'Kernel 'function_exported? 3
+    (lambda (m f a) (->ex-bool (function-defined? m f a))))
+  (defn 'Kernel 'macro_exported? 3 (lambda (_m _f _a) 'false))
+  (defn 'Module 'concat 2 (lambda (a b) (module-concat (list a b))))
+  (defn 'Module 'concat 1 (lambda (lst) (module-concat lst)))
+  (defn 'Module 'split 1
+    (lambda (m) (string-split-on-char (drop-elixir-prefix (symbol->string m)) #\.)))
+  (defn 'Module 'safe_concat 2 (lambda (a b) (module-concat (list a b))))
+  (defn 'Function 'identity 1 (lambda (x) x)))
+
+(define (module-concat parts)
+  (string->symbol
+   (string-join (map (lambda (p) (if (symbol? p) (symbol->string p) p)) parts) ".")))
+
+;; Elixir module atoms are :"Elixir.Foo"; our aliases are bare `Foo` — strip the
+;; prefix if present so Module.split mirrors Elixir.
+(define (drop-elixir-prefix s)
+  (if (and (>= (string-length s) 7) (string=? (substring s 0 7) "Elixir.")) (substring s 7) s))
+
+(define (string-split-on-char s ch)
+  (let loop ((chars (string->list s)) (cur '()) (out '()))
+    (cond
+     ((null? chars) (reverse (cons (list->string (reverse cur)) out)))
+     ((char=? (car chars) ch) (loop (cdr chars) '() (cons (list->string (reverse cur)) out)))
+     (else (loop (cdr chars) (cons (car chars) cur) out)))))
 
 ;;; Module — the compile-time attribute API.  These run during expansion (when
 ;;; macro bodies / DSL forms execute) and mutate the shared attribute store that
