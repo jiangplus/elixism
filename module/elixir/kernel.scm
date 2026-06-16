@@ -141,7 +141,13 @@
   (defn 'Module 'split 1
     (lambda (m) (string-split-on-char (drop-elixir-prefix (symbol->string m)) #\.)))
   (defn 'Module 'safe_concat 2 (lambda (a b) (module-concat (list a b))))
-  (defn 'Function 'identity 1 (lambda (x) x)))
+  (defn 'Function 'identity 1 (lambda (x) x))
+  ;; Code.ensure_loaded?: report optional deps as absent (skips their impls).
+  (defn 'System 'version 0 (lambda () "1.17.0"))
+  (defn 'Version 'match? 2 (lambda (_v _req) 'true))
+  (defn 'Version 'compare 2 (lambda (_a _b) 'gt))
+  (defn 'Code 'ensure_loaded? 1 (lambda (_m) 'false))
+  (defn 'Code 'ensure_compiled 1 (lambda (m) (make-tuple 'error 'nofile))))
 
 (define (module-concat parts)
   (string->symbol
@@ -305,7 +311,17 @@
   (defn 'IO 'inspect 1 (lambda (x) (emit-line (inspect x)) x))
   (defn 'IO 'write 1 (lambda (x) (let ((s (*io-sink*)))
                                    (if s (s (ex->display x)) (display (ex->display x))))
-                       'ok)))
+                       'ok))
+  ;; iodata -> binary: flatten a (possibly nested) iolist of strings/codepoints.
+  (defn 'IO 'iodata_to_binary 1 (lambda (d) (iodata->string d)))
+  (defn 'IO 'iodata_length 1 (lambda (d) (string-length (iodata->string d)))))
+
+(define (iodata->string d)
+  (cond ((string? d) d)
+        ((null? d) "")
+        ((integer? d) (string (integer->char d)))
+        ((pair? d) (apply string-append (map iodata->string d)))
+        (else (ex->display d))))
 
 ;;; File and System — host-only helpers (the WebAssembly backend has neither a
 ;;; filesystem nor a monotonic clock; these are for running on the host VM).
@@ -374,6 +390,12 @@
   (defn 'erlang 'atom_to_list 1 (lambda (a) (string->charlist (symbol->string a))))
   (defn 'erlang 'list_to_integer 1 (lambda (cl) (string->number (charlist->string cl))))
   (defn 'erlang 'integer_to_list 1 (lambda (n) (string->charlist (number->string n))))
+  (defn 'erlang 'binary_to_integer 1 (lambda (s) (string->number s)))
+  (defn 'erlang 'binary_to_integer 2 (lambda (s b) (string->number s b)))
+  (defn 'erlang 'integer_to_binary 1 (lambda (n) (number->string n)))
+  (defn 'erlang 'integer_to_binary 2 (lambda (n b) (number->string n b)))
+  (defn 'erlang 'is_map_key 2 (lambda (k m) (->ex-bool (and (emap? m) (emap-has-key? m k)))))
+  (defn 'erlang 'map_get 2 (lambda (k m) (emap-ref m k 'nil)))
   (defn 'erlang 'tuple_size 1 (lambda (t) (tuple-size t)))
   (defn 'erlang 'byte_size 1 (lambda (s) (if (string? s) (string-length s) 0)))
   (defn 'erlang 'system_info 1 (lambda (_k) 8))   ; wordsize stand-in
@@ -390,6 +412,9 @@
         (else (modulo (hash term range) range))))
 
 (define (install-lists!)
+  (defn 'lists 'any 2 (lambda (pred l) (->ex-bool (any (lambda (x) (ex-truthy? (pred x))) l))))
+  (defn 'lists 'duplicate 2 (lambda (n x) (make-list n x)))
+  (defn 'lists 'split 2 (lambda (n l) (make-tuple (take l n) (drop l n))))
   (defn 'lists 'append 1 (lambda (ls) (apply append ls)))   ; concat a list of lists
   (defn 'lists 'append 2 (lambda (a b) (append a b)))
   (defn 'lists 'reverse 1 (lambda (l) (reverse l)))
@@ -683,6 +708,10 @@
 
 (define (install-integer!)
   (defn 'Integer 'to_string 1 (lambda (n) (number->string n)))
+  (defn 'Integer 'to_string 2 (lambda (n b) (number->string n b)))
+  (defn 'Integer 'to_charlist 1 (lambda (n) (string->charlist (number->string n))))
+  (defn 'Integer 'to_charlist 2 (lambda (n b) (string->charlist (number->string n b))))
+  (defn 'Integer 'to_char_list 1 (lambda (n) (string->charlist (number->string n))))
   (defn 'Integer 'parse 1 (lambda (s) (let ((n (string->number s)))
                                         (if n (make-tuple n "") 'error))))
   (defn 'Integer 'mod 2 (lambda (a b) (modulo a b)))
@@ -712,7 +741,14 @@
     (lambda (flag val) (if (eq? flag 'trap_exit) (->ex-bool (ex-trap-exit! (ex-truthy? val))) 'false)))
   (defn 'Process 'register 2 (lambda (pid name) (ex-register pid name)))
   (defn 'Process 'unregister 1 (lambda (name) (ex-unregister name)))
-  (defn 'Process 'whereis 1 (lambda (name) (ex-whereis name))))
+  (defn 'Process 'whereis 1 (lambda (name) (ex-whereis name)))
+  ;; process dictionary — a global table (single-process benchmark scope)
+  (defn 'Process 'put 2 (lambda (k v) (let ((old (hash-ref *pdict* k 'nil))) (hash-set! *pdict* k v) old)))
+  (defn 'Process 'get 1 (lambda (k) (hash-ref *pdict* k 'nil)))
+  (defn 'Process 'get 2 (lambda (k d) (hash-ref *pdict* k d)))
+  (defn 'Process 'delete 1 (lambda (k) (let ((old (hash-ref *pdict* k 'nil))) (hash-remove! *pdict* k) old))))
+
+(define *pdict* (make-hash-table))
 
 ;;; ----------------------------------------------------------------------
 ;;; GenServer  (a synchronous/async server loop over the process primitives)

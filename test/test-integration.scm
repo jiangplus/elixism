@@ -579,6 +579,25 @@ M.f()")))
        (assert-equal 5
         (ev "case {2, 3} do\n{a, b} = _pair -> a + b\nend")))
 
+     ;; --- features exercised by the Decimal real-program port ---
+     (deftest "heredoc string"
+       (assert-equal "a\nb\n"
+        (ev "x = \"\"\"\n  a\n  b\n  \"\"\"\nx")))
+     (deftest "if(cond, do:, else:) paren form"
+       (assert-equal 'neg (ev "if(1 < 0, do: :pos, else: :neg)")))
+     (deftest "@attr with keyword-list value"
+       (assert-equal 5 (ev "defmodule M do\n@opts since: 5\ndef v, do: Keyword.get(@opts, :since)\nend\nM.v")))
+     (deftest "pipe into anonymous fn call"
+       (assert-equal 20 (ev "f = fn x -> x * 2 end\n10 |> f.()")))
+     (deftest "struct alias resolves in expr and pattern"
+       (assert-equal 7
+        (ev "defmodule A.B do\ndefstruct n: 0\nend\ndefmodule M do\nalias A.B\ndef mk(x), do: %B{n: x}\ndef get(%B{n: n}), do: n\nend\nM.get(M.mk(7))")))
+     (deftest "binary size(N) segment"
+       (assert-equal 258 (ev "<<hi, lo>> = <<1::size(8), 2::size(8)>>\nhi * 256 + lo")))
+     (deftest "module-level compile-time if selects defs"
+       (assert-equal 'new
+        (ev "defmodule M do\nif function_exported?(Enum, :map, 2) do\ndef which, do: :new\nelse\ndef which, do: :old\nend\nend\nM.which()")))
+
      ;; --- module attributes (@-attrs) ---
      (deftest "attribute read"
        (assert-equal 5000 (ev "defmodule M do

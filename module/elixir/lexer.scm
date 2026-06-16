@@ -62,6 +62,13 @@
               (if (or (>= j len) (char=? (string-ref src j) #\newline))
                   (loop j line toks)
                   (skip (+ j 1)))))
+           ;; heredoc  """ ... """  (a multi-line string; doc strings use it)
+           ((and (char=? c #\") (eqv? (peek 1) #\") (eqv? (peek 2) #\"))
+            (lex-heredoc src (+ i 3) line len #\"
+                         (lambda (parts j nl)
+                           (if (and (= (length parts) 1) (string? (car parts)))
+                               (emit 'string (car parts) (- j i) nl toks)
+                               (emit 'interp-string parts (- j i) nl toks)))))
            ;; string
            ((char=? c #\")
             (lex-string src (+ i 1) line len
@@ -251,6 +258,72 @@
      ((char=? (string-ref src j) #\newline)
       (loop (+ j 1) (cons #\newline acc) parts (+ nl 1)))
      (else (loop (+ j 1) (cons (string-ref src j) acc) parts nl)))))
+
+;; Heredoc `""" … """`: content starts after the opening line's newline and
+;; runs until a line that is (whitespace)* followed by the closing `"""`.
+;; Escapes and `#{…}` interpolation are processed as in a normal string; the
+;; closing delimiter's indentation is stripped from each content line.
+(define (lex-heredoc src i line len delim k)
+  ;; skip the remainder of the opening line (up to and incl. the newline)
+  (let skip ((j i) (nl 0))
+    (cond
+     ((>= j len) (k '("") j nl))
+     ((char=? (string-ref src j) #\newline) (heredoc-body src (+ j 1) len delim k (+ nl 1)))
+     (else (skip (+ j 1) nl)))))
+
+;; From j (at a line start), skip spaces/tabs; if the closing delim×3 follows,
+;; return (values end-index indent-count), else #f.
+(define (heredoc-close src j len delim)
+  (let skip ((m j) (ind 0))
+    (cond
+     ((and (< m len) (or (char=? (string-ref src m) #\space) (char=? (string-ref src m) #\tab)))
+      (skip (+ m 1) (+ ind 1)))
+     ((and (<= (+ m 3) len) (char=? (string-ref src m) delim)
+           (char=? (string-ref src (+ m 1)) delim) (char=? (string-ref src (+ m 2)) delim))
+      (cons (+ m 3) ind))
+     (else #f))))
+
+(define (heredoc-body src start len delim k nl0)
+  ;; first pass: find the close to learn the indentation to strip
+  (let* ((close (find-heredoc-close src start len delim))
+         (indent (if close (cdr close) 0)))
+    (let loop ((j start) (acc '()) (parts '()) (nl nl0) (line-start #t) (col 0))
+      (define (flush) (if (null? acc) parts (cons (list->string (reverse acc)) parts)))
+      (cond
+       ((>= j len) (error "elixir lexer: unterminated heredoc"))
+       ((and line-start (heredoc-close src j len delim))
+        => (lambda (cl) (k (reverse (flush)) (car cl) nl)))
+       ;; strip up to `indent` leading whitespace columns on each line
+       ((and line-start (< col indent)
+             (let ((ch (string-ref src j))) (or (char=? ch #\space) (char=? ch #\tab))))
+        (loop (+ j 1) acc parts nl #t (+ col 1)))
+       ((char=? (string-ref src j) #\newline)
+        (loop (+ j 1) (cons #\newline acc) parts (+ nl 1) #t 0))
+       ((char=? (string-ref src j) #\\)
+        (loop (+ j 2) (cons (escape-char (and (< (+ j 1) len) (string-ref src (+ j 1)))) acc)
+              parts nl #f col))
+       ((and (char=? (string-ref src j) #\#) (< (+ j 1) len)
+             (char=? (string-ref src (+ j 1)) #\{))
+        (let scan ((m (+ j 2)) (depth 1) (s (+ j 2)))
+          (cond
+           ((>= m len) (error "elixir lexer: unterminated interpolation"))
+           ((char=? (string-ref src m) #\{) (scan (+ m 1) (+ depth 1) s))
+           ((char=? (string-ref src m) #\})
+            (if (= depth 1)
+                (loop (+ m 1) '() (cons (cons 'interp (substring src s m)) (flush)) nl #f col)
+                (scan (+ m 1) (- depth 1) s)))
+           (else (scan (+ m 1) depth s)))))
+       (else (loop (+ j 1) (cons (string-ref src j) acc) parts nl #f col))))))
+
+;; Scan forward for the closing delimiter line, returning its (end . indent).
+(define (find-heredoc-close src j len delim)
+  (let ((c (heredoc-close src j len delim)))
+    (or c
+        (let next ((m j))
+          (cond ((>= m len) #f)
+                ((char=? (string-ref src m) #\newline)
+                 (or (heredoc-close src (+ m 1) len delim) (next (+ m 1))))
+                (else (next (+ m 1))))))))
 
 (define (lex-charlist src i line len k)
   (let loop ((j i) (acc '()) (nl 0))

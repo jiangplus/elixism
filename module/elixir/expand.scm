@@ -19,6 +19,7 @@
   #:use-module (srfi srfi-1)
   #:use-module (ice-9 match)
   #:use-module (elixir runtime)
+  #:use-module ((elixir dispatch) #:select (function-defined?))
   #:export (expand-program *macro-runner* *before-compile-runner*
             register-macro! macro-defined? reset-macros!))
 
@@ -95,8 +96,9 @@
     (('tuple elts) `(tuple ,(map (lambda (x) (expand-expr x ctx)) elts)))
     (('map pairs) `(map ,(expand-pairs pairs ctx)))
     (('map-update b pairs) `(map-update ,(expand-expr b ctx) ,(expand-pairs pairs ctx)))
-    (('struct m pairs) `(struct ,m ,(expand-pairs pairs ctx)))
-    (('struct-update m b pairs) `(struct-update ,m ,(expand-expr b ctx) ,(expand-pairs pairs ctx)))
+    (('struct m pairs) `(struct ,(resolve-struct-mod m) ,(expand-pairs pairs ctx)))
+    (('struct-update m b pairs)
+     `(struct-update ,(resolve-struct-mod m) ,(expand-expr b ctx) ,(expand-pairs pairs ctx)))
     (('kwlist pairs) `(kwlist ,(expand-pairs pairs ctx)))
     (('binop op l r) `(binop ,op ,(expand-expr l ctx) ,(expand-expr r ctx)))
     (('unop op x) `(unop ,op ,(expand-expr x ctx)))
@@ -133,8 +135,8 @@
     (('defprotocol name body) `(defprotocol ,name ,(expand-expr body ctx)))
     (('defimpl name type body) `(defimpl ,name ,type ,(expand-expr body (alias->sym name))))
     (('def kind name params guard body)
-     `(def ,kind ,name ,params ,(and guard (expand-expr guard ctx))
-           ,(expand-expr body ctx)))
+     `(def ,kind ,name ,(map (lambda (p) (expand-pattern p ctx)) params)
+           ,(and guard (expand-expr guard ctx)) ,(expand-expr body ctx)))
 
     (_ e)))
 
@@ -146,7 +148,25 @@
 
 (define (expand-clause c ctx)
   (match c (('clause pats guard body)
-            `(clause ,pats ,(and guard (expand-expr guard ctx)) ,(expand-expr body ctx)))))
+            `(clause ,(map (lambda (p) (expand-pattern p ctx)) pats)
+                     ,(and guard (expand-expr guard ctx)) ,(expand-expr body ctx)))))
+
+;; Resolve struct-module aliases inside a pattern (%Foo{} where `alias Bar.Foo`).
+;; Only structural; leaves variables, literals, and pins untouched.
+(define (expand-pattern p ctx)
+  (match p
+    (('struct m pairs)
+     `(struct ,(resolve-struct-mod m) ,(map (lambda (kv) (cons (car kv) (expand-pattern (cdr kv) ctx))) pairs)))
+    (('struct-update m b pairs)
+     `(struct-update ,(resolve-struct-mod m) ,(expand-pattern b ctx)
+                     ,(map (lambda (kv) (cons (car kv) (expand-pattern (cdr kv) ctx))) pairs)))
+    (('tuple elts) `(tuple ,(map (lambda (e) (expand-pattern e ctx)) elts)))
+    (('list elts tail) `(list ,(map (lambda (e) (expand-pattern e ctx)) elts)
+                              ,(and tail (expand-pattern tail ctx))))
+    (('map pairs) `(map ,(map (lambda (kv) (cons (car kv) (expand-pattern (cdr kv) ctx))) pairs)))
+    (('match a b) `(match ,(expand-pattern a ctx) ,(expand-pattern b ctx)))
+    (('binop op l r) `(binop ,op ,(expand-pattern l ctx) ,(expand-pattern r ctx)))
+    (_ p)))
 
 (define (expand-with-clause c ctx)
   (match c
@@ -197,6 +217,8 @@
         (let ((f (car fs)))
           (cond
            ((directive-form? f) (add-import! f) (loop (cdr fs) out before))
+           ;; module-level compile-time `if`: splice the selected branch's forms
+           ((module-if-forms f) => (lambda (branch) (loop (append branch (cdr fs)) out before)))
            ((nested-defmodule f)
             => (lambda (p+b)
                  (let* ((iparts (car p+b)) (qparts (append outer-parts iparts)))
@@ -217,6 +239,69 @@
 
 (define (nested-defmodule f)
   (match f (('defmodule ('alias parts) body) (cons parts body)) (_ #f)))
+
+;; A module-body `if cond do … else … end` whose condition is a compile-time
+;; predicate (function_exported?/Code.ensure_loaded?/Version checks) selects
+;; which definitions to emit.  Returns the chosen branch's forms, or #f if the
+;; condition can't be decided at expand time (left for the normal path).
+(define (module-if-forms f)
+  (match f
+    (('if test then els)
+     (let ((v (ct-eval test)))
+       (cond ((eq? v 'ct-unknown) #f)
+             (v (block->forms then))
+             (else (block->forms els)))))
+    (_ #f)))
+(define (block->forms node)
+  (match node (('block fs) fs) (('atom 'nil) '()) (_ (list node))))
+
+;; The Elixir version Elixism reports for compile-time Version checks.
+(define *elixir-version* "1.17.0")
+
+;; Evaluate a compile-time constant expression -> value, or 'ct-unknown.
+(define (ct-eval node)
+  (match node
+    (('atom 'true) #t) (('atom 'false) #f) (('atom a) a)
+    (('alias parts) (alias->sym `(alias ,parts)))
+    (('integer n) n) (('string s) s)
+    (('binop "==" l r) (ct-cmp l r equal?))
+    (('binop "!=" l r) (ct-cmp l r (lambda (a b) (not (equal? a b)))))
+    (('binop "and" l r) (let ((a (ct-eval l))) (cond ((eq? a #f) #f) ((boolean? a) (ct-bool r)) (else 'ct-unknown))))
+    (('binop "or" l r) (let ((a (ct-eval l))) (cond ((eq? a #t) #t) ((boolean? a) (ct-bool r)) (else 'ct-unknown))))
+    (('unop "not" x) (let ((a (ct-eval x))) (if (boolean? a) (not a) 'ct-unknown)))
+    (('call 'function_exported? args) (ct-fn-exported args))
+    (('remote ('alias ('Kernel)) 'function_exported? args) (ct-fn-exported args))
+    (('remote ('alias ('Code)) 'ensure_loaded? _) #f)
+    (('remote ('alias ('System)) 'version _) *elixir-version*)
+    (('remote ('alias ('Version)) 'compare (a b)) (ct-version-compare (ct-eval a) (ct-eval b)))
+    (_ 'ct-unknown)))
+
+(define (ct-bool node) (let ((v (ct-eval node))) (if (boolean? v) v 'ct-unknown)))
+(define (ct-cmp l r f)
+  (let ((a (ct-eval l)) (b (ct-eval r)))
+    (if (or (eq? a 'ct-unknown) (eq? b 'ct-unknown)) 'ct-unknown (f a b))))
+
+(define (ct-fn-exported args)
+  (match args
+    ((m f a)
+     (let ((mod (ct-eval m)) (fun (ct-eval f)) (ar (ct-eval a)))
+       (if (and (symbol? mod) (symbol? fun) (integer? ar))
+           (function-defined? mod fun ar)
+           'ct-unknown)))
+    (_ 'ct-unknown)))
+
+;; Compare two "MAJOR.MINOR.PATCH" version strings -> 'lt | 'eq | 'gt.
+(define (ct-version-compare va vb)
+  (if (and (string? va) (string? vb))
+      (let loop ((a (version-parts va)) (b (version-parts vb)))
+        (cond ((and (null? a) (null? b)) 'eq)
+              ((< (if (null? a) 0 (car a)) (if (null? b) 0 (car b))) 'lt)
+              ((> (if (null? a) 0 (car a)) (if (null? b) 0 (car b))) 'gt)
+              (else (loop (if (null? a) a (cdr a)) (if (null? b) b (cdr b))))))
+      'ct-unknown))
+(define (version-parts s)
+  (map (lambda (p) (or (string->number p) 0))
+       (string-split (car (string-split s #\-)) #\.)))
 
 ;; Collected top-level modules lifted out of enclosing modules (a 1-slot box).
 (define *module-hoist* (make-parameter #f))
@@ -302,6 +387,11 @@
 (define *imports* (make-parameter #f))
 (define (current-imports)
   (let ((b (*imports*))) (if (vector? b) (vector-ref b 0) '())))
+
+;; Resolve a struct's module alias (%Foo{} where `alias Bar.Foo`); leave
+;; %__MODULE__{} and already-full names alone.
+(define (resolve-struct-mod m)
+  (match m (('alias parts) (resolve-alias parts)) (_ m)))
 
 (define (resolve-alias parts)
   (let ((tbl (*aliases*)))

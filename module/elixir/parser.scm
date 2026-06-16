@@ -243,6 +243,8 @@
       (let ((name (token-value (advance! c))))
         (cond
          ((memq name *typespec-attrs*) (skip-typespec c) `(attr-set ,name (atom nil)))
+         ;; @attr key: val, …  -> the value is a keyword list (e.g. @doc since: x)
+         ((at? c 'kwident) `(attr-set ,name ,(parse-kwlist c 'eof)))
          ((value-start? c) `(attr-set ,name ,(parse-expr c 0)))
          (else `(attr-get ,name))))
       `(unop "@" ,(parse-unary c))))
@@ -411,12 +413,25 @@
         (begin (advance! c) `(bseg ,e ,(parse-bin-type c)))
         `(bseg ,e #f))))
 
-;; A type spec: an ident (binary/integer/utf8/float/...) or a size integer.
-;; Compound specs (`integer-size(8)`) collapse to their leading token here.
+;; A binary segment typespec: `-`-joined atoms, each an ident (binary/integer/
+;; float/signed/…), a bare size int, or `size(N)`/`unit(N)`.  A single atom is
+;; returned bare (a symbol or int); a compound spec is `(spec atom …)` where a
+;; size atom is `(size <ast>)`.
 (define (parse-bin-type c)
+  (let loop ((atoms (list (parse-bin-type-atom c))))
+    (if (at-op? c "-")
+        (begin (advance! c) (loop (cons (parse-bin-type-atom c) atoms)))
+        (let ((as (reverse atoms)))
+          (if (null? (cdr as)) (car as) (cons 'spec as))))))
+
+(define (parse-bin-type-atom c)
   (cond
-   ((at? c 'ident) (token-value (advance! c)))
-   ((at? c 'int)   (token-value (advance! c)))
+   ((at? c 'ident)
+    (let ((name (token-value (advance! c))))
+      (if (at? c 'lparen)
+          (list name (car (parse-paren-args c)))   ; size(N) / unit(N)
+          name)))
+   ((at? c 'int) (token-value (advance! c)))
    (else (parse-expr c 111))))
 
 ;; Sigils.  ~w/~W word lists (modifier a -> atoms, c -> charlists), ~s strings,
@@ -836,18 +851,28 @@
               (else (loop (+ i 1) depth))))))))
 
 (define (parse-if c)
-  (let ((test (parse-expr c 0)))
-    (let ((blk (if (at? c 'comma)
-                   (begin (advance! c) (cadr (parse-kwlist c 'eof)))
-                   (parse-do-block c))))
-      `(if ,test ,(section blk 'do) ,(section blk 'else)))))
+  (let-values (((test blk) (parse-cond-and-block c)))
+    `(if ,test ,(section blk 'do) ,(section blk 'else))))
 
 (define (parse-unless c)
-  (let ((test (parse-expr c 0)))
-    (let ((blk (if (at? c 'comma)
-                   (begin (advance! c) (cadr (parse-kwlist c 'eof)))
-                   (parse-do-block c))))
-      `(if (unop "not" ,test) ,(section blk 'do) ,(section blk 'else)))))
+  (let-values (((test blk) (parse-cond-and-block c)))
+    `(if (unop "not" ,test) ,(section blk 'do) ,(section blk 'else))))
+
+;; The condition + body of if/unless, in any of: `if cond do…end`,
+;; `if cond, do: x`, or the call form `if(cond, do: x, else: y)`.
+(define (parse-cond-and-block c)
+  (if (at? c 'lparen)
+      (let* ((args (parse-paren-args c))
+             (kw (find (lambda (a) (and (pair? a) (eq? (car a) 'kwlist))) args)))
+        (if kw
+            (values (car args) (cadr kw))
+            (values (car args) (resolve-if-block c))))
+      (values (parse-expr c 0) (resolve-if-block c))))
+
+(define (resolve-if-block c)
+  (if (at? c 'comma)
+      (begin (advance! c) (cadr (parse-kwlist c 'eof)))
+      (parse-do-block c)))
 
 (define (parse-case c)
   (let ((subject (parse-expr c 0)))

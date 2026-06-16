@@ -277,9 +277,12 @@
            (filter-map
             (lambda (k)
               (cond
+               ;; the guard belongs to the full clause; a lower-arity delegate
+               ;; just fills defaults and forwards (its missing params would make
+               ;; the guard reference unbound vars).
                ((< k n)
                 (let ((callargs (append (map car (take parts k)) (map cdr (drop parts k)))))
-                  `(def ,kind ,name ,(map car (take parts k)) ,guard (call ,name ,callargs))))
+                  `(def ,kind ,name ,(map car (take parts k)) #f (call ,name ,callargs))))
                (body `(def ,kind ,name ,(map car parts) ,guard ,body))
                (else #f)))                          ; head: real body is elsewhere
             (iota (+ (- n required) 1) required)))))))))
@@ -487,17 +490,51 @@
                                 `(substring ,subj ,(quotient total 8) (string-length ,subj)) #f ctx)
                #t))))
 
+;; --- binary segment typespec analysis ---------------------------------------
+;; A spec is a symbol (binary/integer/float/…), a bare bit-size int, `(size ast)`,
+;; or `(spec atom …)`.  These pull out the primary type and an explicit size.
+(define (spec-atoms type) (match type (('spec . as) as) (_ (list type))))
+(define (spec-primary type)
+  (or (find (lambda (a) (memq a '(binary bits bytes bitstring integer float utf8 utf16 utf32)))
+            (spec-atoms type))
+      'integer))
+(define (spec-size type)   ; explicit size (an int or AST), or #f
+  (let loop ((as (spec-atoms type)))
+    (cond ((null? as) #f)
+          ((integer? (car as)) (car as))
+          ((and (pair? (car as)) (eq? (car (car as)) 'size)) (cadr (car as)))
+          (else (loop (cdr as))))))
+(define (spec-size-int type)
+  (let ((s (spec-size type)))
+    (cond ((integer? s) s) ((and (pair? s) (eq? (car s) 'integer)) (cadr s)) (else #f))))
+;; The type to hand ex-bin-seg: a primary type symbol, or a bit-size integer.
+(define (seg-ebin-type type)
+  (let ((prim (spec-primary type)) (sz (spec-size-int type)))
+    (cond ((memq prim '(binary bits bytes bitstring)) prim)
+          (sz sz)
+          ((integer? type) type)
+          (else prim))))
+
 ;; Compile-time byte width of a fixed segment.
 (define (seg-byte-width seg)
-  (match seg (('bseg _ type) (if (and (integer? type) (> type 8)) (quotient type 8) 1))))
+  (match seg
+    (('bseg _ type)
+     (let ((prim (spec-primary type)) (sz (spec-size-int type)))
+       (cond ((memq prim '(binary bits bytes bitstring)) (or sz 1))
+             ((and sz (> sz 8)) (quotient sz 8))
+             ((and (integer? type) (> type 8)) (quotient type 8))
+             (else 1))))))
 
 ;; Compile-time bit width of a fixed integer segment (#f for binary/utf8).
 (define (seg-bit-width seg)
   (match seg
     (('bseg _ type)
-     (cond ((memq type '(binary bitstring bytes utf8 utf16 utf32)) #f)
-           ((integer? type) type)
-           (else 8)))))
+     (let ((prim (spec-primary type)) (sz (spec-size-int type)))
+       (cond ((memq prim '(binary bitstring bytes utf8 utf16 utf32)) #f)
+             ((eq? prim 'float) (or sz 64))
+             (sz sz)
+             ((integer? type) type)
+             (else 8))))))
 
 ;; Does any segment specify a sub-byte (non-multiple-of-8) integer field?
 (define (binary-has-subbyte? segs)
@@ -510,9 +547,12 @@
         (loop (cdr ws) (+ acc (car ws)) (cons acc out)))))
 
 ;; If a segment is `var::binary` (the rest-binder), return the inner pattern.
+;; Only an *unsized* trailing binary segment binds the rest; `size(7)-binary`
+;; is a fixed-width slice, not the rest binder.
 (define (binary-rest-seg seg)
   (match seg
-    (('bseg e type) (and (memq type '(binary bitstring bytes)) e))
+    (('bseg e type) (and (memq (spec-primary type) '(binary bitstring bytes))
+                         (not (spec-size type)) e))
     (_ #f)))
 
 (define (compile-list-pattern elts tail subj ctx)
@@ -577,7 +617,7 @@
            (list ,@(map (lambda (s)
                           (match s
                             (('bseg e type)
-                             (if (memq type '(binary bitstring bytes))
+                             (if (memq (spec-primary type) '(binary bitstring bytes))
                                  `(list 'append ,(compile-expr e ctx))
                                  `(list 'field ,(compile-expr e ctx)
                                         ,(or (seg-bit-width s) 8))))))
@@ -586,7 +626,7 @@
          `(string-append
            ,@(map (lambda (s)
                     (match s (('bseg e type)
-                              `(ex-bin-seg ,(compile-expr e ctx) ',type))))
+                              `(ex-bin-seg ,(compile-expr e ctx) ',(seg-ebin-type type)))))
                   segs))))
     (('map pairs)
      `(alist->emap (list ,@(map (lambda (kv)
@@ -767,6 +807,8 @@
     (('call name args) (compile-call name (cons l args) ctx))
     (('remote m fun args) (compile-remote m fun (cons l args) ctx))
     (('var name) (compile-call name (list l) ctx))
+    ;; x |> fun.(args)  ->  fun.(x, args)
+    (('dotcall f args) (compile-expr `(dotcall ,f ,(cons l args)) ctx))
     (_ (error "compiler: |> right side must be a call" r))))
 
 (define (compile-unop op x ctx)
