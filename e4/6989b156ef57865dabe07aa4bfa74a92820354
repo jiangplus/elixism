@@ -1,0 +1,40 @@
+zig-rt/README.md
+  s_8e9977ffd5237f::t_17bc43d24e5b8b 1-87
+zig-rt/guile-bench.scm
+  s_8e9977ffd5237f::t_d78a42ff572d07 1-23
+zig-rt/src/wasm.zig
+  s_8e9977ffd5237f::t_eadfb140e64021 1-114
+zig-rt/src/term.zig
+  s_8e9977ffd5237f::t_9a62c6ca1bd898 1-89
+zig-rt/bench.js
+  s_8e9977ffd5237f::t_b6642458bf7624 1-35
+zig-rt/src/root.zig
+  s_8e9977ffd5237f::t_37343962004e96 1-7
+zig-rt/src/hamt.zig
+  s_8e9977ffd5237f::t_a1fdb7fe61dc4d 1-88,91-118,120-136,138-167,169-193,195-198,202,204-205,209-416,418-432
+  s_8e9977ffd5237f::t_144da747c7c247 417
+  s_8e9977ffd5237f::t_fd52cbcc2a5da1 199-201,203,206-208
+  s_8e9977ffd5237f::t_5a264683ec250d 89-90,119,137,168,194
+zig-rt/src/value.zig
+  s_8e9977ffd5237f::t_21786eea2b2c86 88
+  s_8e9977ffd5237f::t_4775e3a16c13ad 79-80,136,139-140
+  s_8e9977ffd5237f::t_887ccddece5de2 1-78,81-87,89-135,137-138,141-252
+zig-rt/build.zig
+  s_8e9977ffd5237f::t_120a8ade9e0cc8 1-31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "e46989b156ef57865dabe07aa4bfa74a92820354",
+  "prompts": {},
+  "sessions": {
+    "s_8e9977ffd5237f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa7bf6bc-f474-4925-a494-a8ea455f13a6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
