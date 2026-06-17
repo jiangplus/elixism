@@ -1,0 +1,48 @@
+test/test-integration.scm
+  s_8e9977ffd5237f::t_5aa805daa0b222 704-727
+README.md
+  s_8e9977ffd5237f::t_aef520882bb5a2 137-161
+  s_8e9977ffd5237f::t_d63b8f0de767b6 42-44,47-54
+  s_8e9977ffd5237f::t_91c4a5ca96a5c3 79,181,192
+module/elixir/kernel.scm
+  s_8e9977ffd5237f::t_fef28c5a8e2aea 13
+  s_8e9977ffd5237f::t_a3774176eb30e7 54
+  s_8e9977ffd5237f::t_a6dae3b9a5aa31 905-916,918-920,922-933,935-937,940,942-947,949-952,954-957,962,966-967,969-972,974-976,978,980-982,984,986-988,991-996,998-1001,1003-1004,1006-1007,1011-1012,1022-1024,1026,1029-1031,1033,1036-1039,1041,1044-1046,1048,1051,1053,1056-1058,1061-1064,1066,1068-1069,1071-1074,1076-1086,1088,1090,1092-1093,1095-1097,1100-1104,1106-1107,1109,1111,1114,1116,1118-1126,1128-1141,1151,1159
+  s_8e9977ffd5237f::t_8001f912e76433 979
+  s_8e9977ffd5237f::t_91e3b9e7dc29f3 1098-1099
+development.md
+  s_8e9977ffd5237f::t_4cc9d4374f66a6 256
+  s_8e9977ffd5237f::t_f5cb1522c493a4 167-208
+  s_8e9977ffd5237f::t_06645a703e5d30 244
+wasm-node/README.md
+  s_8e9977ffd5237f::t_831475ce8688c9 72-96
+DOCUMENTATION.md
+  s_8e9977ffd5237f::t_a20f14ac32169d 364-367,370-374
+  s_8e9977ffd5237f::t_3d90c19b2f59a8 315-326
+  s_8e9977ffd5237f::t_ba52b2e284af0b 385-398
+wasm-node/package.json
+  s_8e9977ffd5237f::t_ce1fad43cc45d2 9-11
+wasm-node/server.js
+  s_8e9977ffd5237f::t_ab20570e050e86 1-135
+wasm-node/build.sh
+  s_8e9977ffd5237f::t_e63e0f8fb21f8a 46
+  s_8e9977ffd5237f::t_1a83745a07f1d4 30-31
+  s_8e9977ffd5237f::t_f6a322dbdffac8 5,8-13
+  s_8e9977ffd5237f::t_585d0fb90b88c5 32-37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "ac2dbd02938a88f15931cd5991426a0c6deedf0a",
+  "prompts": {},
+  "sessions": {
+    "s_8e9977ffd5237f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa7bf6bc-f474-4925-a494-a8ea455f13a6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
