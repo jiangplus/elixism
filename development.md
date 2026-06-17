@@ -78,6 +78,30 @@
 
 ---
 
+## 真实 hex 包基准(同源码跨后端对比)
+
+`bench-graph/` 用**未改动**的真实库,在 BEAM 与 Elixism/Guile 上跑同一份源码,
+带正确性门禁(两端结果必须逐字节一致):
+
+| 基准 | 包 | 工作负载 | 慢倍数(M 芯片) |
+|---|---|---|---|
+| graph | libgraph | 构图 + 强连通分量 + 无环判定 + 可达 | ~46–109×(超线性,alist map) |
+| decimal | Decimal | 任意精度算术(new/mult/sub/add 折叠) | ~49× |
+
+为跑通这两个库,补了一大批通用特性(heredoc、编译期 `if`、二进制 spec、
+struct alias 解析、缺省参数宏、`bind_quoted: binding()`、`for...into: do` 等),
+全部进了 `make test`。详见各 README 与 git 历史。
+
+**已知不可跑的真实库**(范畴性缺口,非小补丁):
+- **Jason / Poison**:字节级二进制匹配 `<<x::binary-size(n)>>`,与 Elixism 的
+  codepoint 串模型冲突(且会 O(n²) 病态慢)。
+- **Earmark**:91 个 `~r` 正则 + 53 处 `Regex.` —— 需要**真正的正则引擎**(独立子系统),
+  **留待将来有正则能力后再做**。
+- **Decimal 的 `div`/`compare`**:依赖 `pow10` 的 0..104 基表,该表由编译期
+  `Enum.reduce` 边跑边 `defp` 生成 —— 需要编译期模块体执行模型,Elixism 暂无。
+
+---
+
 ## 宏引擎补全(支撑 Phoenix/Ecto 所需的宏功能)
 
 > 本轮把宏子系统从「只能跑最简单的 quote/unquote」补到「能跑 Phoenix/Ecto 风格 DSL」。
