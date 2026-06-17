@@ -358,10 +358,11 @@
   (let loop ((pairs '()))
     (skip-newlines! c)
     (if (at? c 'kwident)
-        ;; Values parse at statement level so `do: raise "x"` / `do: IO.puts m`
-        ;; recognise no-parens calls.
+        ;; Values allow no-parens calls (`do: raise "x"`, `do: IO.puts m`) but do
+        ;; NOT absorb a trailing do-block — that belongs to the enclosing form, so
+        ;; `quote bind_quoted: binding() do … end` keeps its body.
         (let* ((key (token-value (advance! c)))
-               (val (parse-stmt c)))
+               (val (maybe-no-paren-call c (parse-expr c 0))))
           (skip-newlines! c)
           (if (at? c 'comma)
               (begin (advance! c) (loop (cons (cons key val) pairs)))

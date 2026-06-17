@@ -135,8 +135,11 @@
     (('defprotocol name body) `(defprotocol ,name ,(expand-expr body ctx)))
     (('defimpl name type body) `(defimpl ,name ,type ,(expand-expr body (alias->sym name))))
     (('def kind name params guard body)
-     `(def ,kind ,name ,(map (lambda (p) (expand-pattern p ctx)) params)
-           ,(and guard (expand-expr guard ctx)) ,(expand-expr body ctx)))
+     ;; record the parameter names so `binding()` (used by `quote bind_quoted:
+     ;; binding()`) inside the body can reconstruct the local bindings.
+     (parameterize ((*current-params* (append-map param-var-names params)))
+       `(def ,kind ,name ,(map (lambda (p) (expand-pattern p ctx)) params)
+             ,(and guard (expand-expr guard ctx)) ,(expand-expr body ctx))))
 
     (_ e)))
 
@@ -614,9 +617,25 @@
                                  (list (quote-to-ast body ctx))))))
         (quote-to-ast body ctx))))
 
-;; the (name . value-ast) pairs of a bind_quoted: keyword list.
+;; The names of the parameters of the def currently being expanded — what
+;; `binding()` reports.
+(define *current-params* (make-parameter '()))
+(define (param-var-names p)
+  (match p
+    (('var '_) '()) (('var v) (list v))
+    (('binop "\\\\" pat _) (param-var-names pat))
+    (('match a b) (append (param-var-names a) (param-var-names b)))
+    (('tuple elts) (append-map param-var-names elts))
+    (('list elts tail) (append (append-map param-var-names elts) (if tail (param-var-names tail) '())))
+    (('struct _ pairs) (append-map (lambda (kv) (param-var-names (cdr kv))) pairs))
+    (('map pairs) (append-map (lambda (kv) (param-var-names (cdr kv))) pairs))
+    (_ '())))
+
+;; the (name . value-ast) pairs of a bind_quoted: keyword list.  `binding()`
+;; expands to one binding per in-scope parameter: name = <that variable>.
 (define (bind-quoted-pairs node)
   (match node
+    (('call 'binding _) (map (lambda (v) (cons v `(var ,v))) (*current-params*)))
     (('kwlist pairs) pairs)
     (('list elts #f)
      (map (lambda (e) (match e (('tuple (('atom k) v)) (cons k v)))) elts))
