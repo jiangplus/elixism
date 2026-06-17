@@ -10,7 +10,7 @@
 (define-module (elixir kernel)
   #:use-module (srfi srfi-1)
   #:use-module (ice-9 textual-ports)
-  #:use-module ((rnrs bytevectors) #:select (bytevector-length string->utf8 make-bytevector u8-list->bytevector bytevector->u8-list))
+  #:use-module ((rnrs bytevectors) #:select (bytevector-length string->utf8 utf8->string make-bytevector u8-list->bytevector bytevector->u8-list))
   #:use-module (elixir runtime)
   #:use-module (elixir dispatch)
   #:use-module (elixir process)
@@ -51,6 +51,7 @@
   (install-equeue!)
   (install-stream!)
   (install-ets!)
+  (install-json!)
   'ok)
 
 ;;; MapSet — a set as %{__struct__: MapSet, map: %{elem => []}}.  Enumerable /
@@ -901,3 +902,258 @@
     ((one_for_all) (iota n))
     ((rest_for_one) (iota (- n idx) idx))
     (else (list idx))))                ; one_for_one
+
+;;; ----------------------------------------------------------------------
+;;; Native JSON (Jason / JSON) — moves JSON out of user Elixir into the
+;;; runtime.  Pure Scheme: works identically on the host, the Hoot/WASM
+;;; edge (Cloudflare), and Node, since install-stdlib! runs in all three.
+;;; ----------------------------------------------------------------------
+
+;; --- encode ---------------------------------------------------------------
+;; Term -> JSON string.  Mirrors Jason defaults: nil/true/false -> literals,
+;; atoms -> strings, maps -> objects, lists -> arrays, structs -> their fields
+;; minus __struct__.  Tuples (which Jason rejects) become arrays for web use.
+
+(define (exjson-hex4 n)
+  (let ((h (number->string n 16)))
+    (string-append (make-string (- 4 (string-length h)) #\0) h)))
+
+(define (exjson-escape-into s port)
+  (let ((n (string-length s)))
+    (let loop ((i 0))
+      (when (< i n)
+        (let* ((ch (string-ref s i)) (c (char->integer ch)))
+          (cond
+           ((char=? ch #\") (display "\\\"" port))
+           ((char=? ch #\\) (display "\\\\" port))
+           ((char=? ch #\newline) (display "\\n" port))
+           ((char=? ch #\return) (display "\\r" port))
+           ((char=? ch #\tab) (display "\\t" port))
+           ((= c 8) (display "\\b" port))
+           ((= c 12) (display "\\f" port))
+           ((< c #x20) (display "\\u" port) (display (exjson-hex4 c) port))
+           (else (display ch port))))
+        (loop (+ i 1))))))
+
+(define (exjson-write-string s port)
+  (display #\" port) (exjson-escape-into s port) (display #\" port))
+
+(define (exjson-key->string k)
+  (cond ((string? k) k)
+        ((symbol? k) (symbol->string k))
+        ((bin? k) (utf8->string (bin-bv k)))
+        ((and (integer? k) (exact? k)) (number->string k))
+        (else (ex-raise (make-tuple 'Jason.EncodeError "invalid object key")))))
+
+(define (exjson-number->string v)
+  (if (and (rational? v) (exact? v) (not (integer? v)))
+      (number->string (exact->inexact v))
+      (number->string v)))
+
+(define (exjson-encode-into v port)
+  (cond
+   ((eq? v 'nil) (display "null" port))
+   ((eq? v 'true) (display "true" port))
+   ((eq? v 'false) (display "false" port))
+   ((string? v) (exjson-write-string v port))
+   ((symbol? v) (exjson-write-string (symbol->string v) port))
+   ((number? v) (display (exjson-number->string v) port))
+   ((bin? v) (exjson-write-string (utf8->string (bin-bv v)) port))
+   ((null? v) (display "[]" port))
+   ((pair? v) (exjson-encode-array v port))
+   ((tuple? v) (exjson-encode-array (tuple->list v) port))
+   ((emap? v) (exjson-encode-object v port))
+   (else (ex-raise (make-tuple 'Jason.EncodeError (inspect v))))))
+
+(define (exjson-encode-array lst port)
+  (display #\[ port)
+  (let loop ((l lst) (first #t))
+    (when (pair? l)
+      (when (not first) (display #\, port))
+      (exjson-encode-into (car l) port)
+      (loop (cdr l) #f)))
+  (display #\] port))
+
+(define (exjson-encode-object m port)
+  (display #\{ port)
+  (let loop ((al (filter (lambda (kv) (not (eq? (car kv) '__struct__))) (emap->alist m)))
+             (first #t))
+    (when (pair? al)
+      (when (not first) (display #\, port))
+      (exjson-write-string (exjson-key->string (caar al)) port)
+      (display #\: port)
+      (exjson-encode-into (cdar al) port)
+      (loop (cdr al) #f)))
+  (display #\} port))
+
+(define (exjson-encode v)
+  (call-with-output-string (lambda (port) (exjson-encode-into v port))))
+
+;; --- decode ---------------------------------------------------------------
+;; JSON string -> term.  Recursive descent over (string . index).  Objects
+;; become maps (string keys by default, atoms when keys?=#t); arrays lists;
+;; numbers integers or floats; true/false/null the corresponding atoms.
+
+(define (exjson-ws s i n)
+  (if (and (< i n)
+           (let ((c (string-ref s i)))
+             (or (char=? c #\space) (char=? c #\newline)
+                 (char=? c #\return) (char=? c #\tab))))
+      (exjson-ws s (+ i 1) n)
+      i))
+
+(define (exjson-decode-error msg) (ex-raise (make-tuple 'Jason.DecodeError msg)))
+
+;; Returns (values value next-index).
+(define (exjson-parse-value s i n keys?)
+  (let ((i (exjson-ws s i n)))
+    (when (>= i n) (exjson-decode-error "unexpected end of input"))
+    (let ((c (string-ref s i)))
+      (cond
+       ((char=? c #\{) (exjson-parse-object s (+ i 1) n keys?))
+       ((char=? c #\[) (exjson-parse-array s (+ i 1) n keys?))
+       ((char=? c #\") (exjson-parse-string s (+ i 1) n))
+       ((char=? c #\t) (exjson-expect s i n "true" 'true))
+       ((char=? c #\f) (exjson-expect s i n "false" 'false))
+       ((char=? c #\n) (exjson-expect s i n "null" 'nil))
+       (else (exjson-parse-number s i n))))))
+
+(define (exjson-expect s i n lit val)
+  (let ((m (string-length lit)))
+    (if (and (<= (+ i m) n) (string=? (substring s i (+ i m)) lit))
+        (values val (+ i m))
+        (exjson-decode-error (string-append "expected " lit)))))
+
+(define (exjson-parse-array s i n keys?)
+  (let ((i (exjson-ws s i n)))
+    (if (and (< i n) (char=? (string-ref s i) #\]))
+        (values '() (+ i 1))
+        (let loop ((i i) (acc '()))
+          (call-with-values (lambda () (exjson-parse-value s i n keys?))
+            (lambda (v j)
+              (let ((j (exjson-ws s j n)))
+                (when (>= j n) (exjson-decode-error "unterminated array"))
+                (let ((c (string-ref s j)))
+                  (cond
+                   ((char=? c #\,) (loop (+ j 1) (cons v acc)))
+                   ((char=? c #\]) (values (reverse (cons v acc)) (+ j 1)))
+                   (else (exjson-decode-error "expected , or ] in array")))))))))))
+
+(define (exjson-parse-object s i n keys?)
+  (let ((i (exjson-ws s i n)))
+    (if (and (< i n) (char=? (string-ref s i) #\}))
+        (values (alist->emap '()) (+ i 1))
+        (let loop ((i i) (acc '()))
+          (let ((i (exjson-ws s i n)))
+            (when (or (>= i n) (not (char=? (string-ref s i) #\")))
+              (exjson-decode-error "expected string key in object"))
+            (call-with-values (lambda () (exjson-parse-string s (+ i 1) n))
+              (lambda (k j)
+                (let ((j (exjson-ws s j n)))
+                  (when (or (>= j n) (not (char=? (string-ref s j) #\:)))
+                    (exjson-decode-error "expected : in object"))
+                  (call-with-values (lambda () (exjson-parse-value s (+ j 1) n keys?))
+                    (lambda (v k2)
+                      (let* ((key (if keys? (string->symbol k) k))
+                             (acc (cons (cons key v) acc))
+                             (k2 (exjson-ws s k2 n)))
+                        (when (>= k2 n) (exjson-decode-error "unterminated object"))
+                        (let ((c (string-ref s k2)))
+                          (cond
+                           ((char=? c #\,) (loop (+ k2 1) acc))
+                           ((char=? c #\}) (values (alist->emap (reverse acc)) (+ k2 1)))
+                           (else (exjson-decode-error "expected , or } in object")))))))))))))))
+
+(define (exjson-parse-string s i n)
+  ;; i points just past the opening quote.
+  (let loop ((i i) (chars '()))
+    (when (>= i n) (exjson-decode-error "unterminated string"))
+    (let ((c (string-ref s i)))
+      (cond
+       ((char=? c #\") (values (list->string (reverse chars)) (+ i 1)))
+       ((char=? c #\\)
+        (when (>= (+ i 1) n) (exjson-decode-error "bad escape"))
+        (let ((e (string-ref s (+ i 1))))
+          (cond
+           ((char=? e #\") (loop (+ i 2) (cons #\" chars)))
+           ((char=? e #\\) (loop (+ i 2) (cons #\\ chars)))
+           ((char=? e #\/) (loop (+ i 2) (cons #\/ chars)))
+           ((char=? e #\n) (loop (+ i 2) (cons #\newline chars)))
+           ((char=? e #\r) (loop (+ i 2) (cons #\return chars)))
+           ((char=? e #\t) (loop (+ i 2) (cons #\tab chars)))
+           ((char=? e #\b) (loop (+ i 2) (cons (integer->char 8) chars)))
+           ((char=? e #\f) (loop (+ i 2) (cons (integer->char 12) chars)))
+           ((char=? e #\u)
+            (when (> (+ i 6) n) (exjson-decode-error "bad \\u escape"))
+            (let ((cp (string->number (substring s (+ i 2) (+ i 6)) 16)))
+              (when (not cp) (exjson-decode-error "bad \\u escape"))
+              (loop (+ i 6) (cons (integer->char cp) chars))))
+           (else (exjson-decode-error "bad escape")))))
+       (else (loop (+ i 1) (cons c chars)))))))
+
+(define (exjson-parse-number s i n)
+  (let loop ((j i) (float? #f))
+    (if (and (< j n)
+             (let ((c (string-ref s j)))
+               (or (and (char>=? c #\0) (char<=? c #\9))
+                   (char=? c #\-) (char=? c #\+)
+                   (char=? c #\.) (char=? c #\e) (char=? c #\E))))
+        (loop (+ j 1) (or float? (let ((c (string-ref s j)))
+                                   (or (char=? c #\.) (char=? c #\e) (char=? c #\E)))))
+        (let* ((tok (substring s i j))
+               (num (string->number tok)))
+          (when (not num) (exjson-decode-error (string-append "bad number: " tok)))
+          (values (if float? (exact->inexact num) num) j)))))
+
+(define (exjson-decode str keys?)
+  (let ((n (string-length str)))
+    (call-with-values (lambda () (exjson-parse-value str 0 n keys?))
+      (lambda (v i)
+        (let ((i (exjson-ws str i n)))
+          (if (= i n) v (exjson-decode-error "trailing data after JSON value")))))))
+
+(define (exjson-decode-result str keys?)
+  ;; {:ok, term} | {:error, %Jason.DecodeError{}} for Jason.decode/1,2.
+  (let ((thunk (lambda () (make-tuple 'ok (exjson-decode str keys?)))))
+    (call-with-current-continuation
+     (lambda (k)
+       (with-exception-handler
+        (lambda (exn)
+          (k (make-tuple 'error
+                         (alist->emap (list (cons '__struct__ 'Jason.DecodeError)
+                                            (cons 'data str))))))
+        thunk #:unwind? #t)))))
+
+(define (exjson-opts-atoms? opts)
+  ;; opts is a keyword list (list of {atom,val}) or map; keys: :atoms / :atoms!
+  (let ((v (cond ((emap? opts) (emap-ref opts 'keys 'nil))
+                 ((list? opts)
+                  (let scan ((l opts))
+                    (cond ((null? l) 'nil)
+                          ((and (tuple? (car l)) (= (tuple-size (car l)) 2)
+                                (eq? (tuple-ref (car l) 0) 'keys))
+                           (tuple-ref (car l) 1))
+                          (else (scan (cdr l))))))
+                 (else 'nil))))
+    (or (eq? v 'atoms) (eq? v 'atoms!))))
+
+(define (install-json!)
+  ;; Jason.encode!/1 and JSON.encode!/1 — the common path.
+  (defn 'Jason 'encode! 1 (lambda (v) (exjson-encode v)))
+  (defn 'Jason 'encode! 2 (lambda (v _opts) (exjson-encode v)))
+  (defn 'Jason 'encode 1 (lambda (v) (make-tuple 'ok (exjson-encode v))))
+  (defn 'Jason 'encode 2 (lambda (v _opts) (make-tuple 'ok (exjson-encode v))))
+  (defn 'Jason 'encode_to_iodata! 1 (lambda (v) (exjson-encode v)))
+  (defn 'Jason 'decode! 1 (lambda (s) (exjson-decode s #f)))
+  (defn 'Jason 'decode! 2 (lambda (s opts) (exjson-decode s (exjson-opts-atoms? opts))))
+  (defn 'Jason 'decode 1 (lambda (s) (exjson-decode-result s #f)))
+  (defn 'Jason 'decode 2 (lambda (s opts) (exjson-decode-result s (exjson-opts-atoms? opts))))
+  ;; Elixir 1.18+ ships a built-in JSON module with the same shape.
+  (defn 'JSON 'encode! 1 (lambda (v) (exjson-encode v)))
+  (defn 'JSON 'encode! 2 (lambda (v _opts) (exjson-encode v)))
+  (defn 'JSON 'encode 1 (lambda (v) (make-tuple 'ok (exjson-encode v))))
+  (defn 'JSON 'decode! 1 (lambda (s) (exjson-decode s #f)))
+  (defn 'JSON 'decode! 2 (lambda (s opts) (exjson-decode s (exjson-opts-atoms? opts))))
+  (defn 'JSON 'decode 1 (lambda (s) (exjson-decode-result s #f)))
+  (defn 'JSON 'decode 2 (lambda (s opts) (exjson-decode-result s (exjson-opts-atoms? opts))))
+  'ok)

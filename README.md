@@ -39,11 +39,19 @@ stock Guile (how the tests run) or hands it to Hoot to produce WebAssembly.
 * **Call syntax** — both parenthesised and **no-parens** calls
   (`raise "x"`, `IO.puts msg`, `send pid, m`).
 * **Standard library** — a Scheme-implemented core (`Kernel`, `Enum`, `Map`,
-  `Keyword`, `List`, `Tuple`, `String`, `Integer`, `Float`, `IO`, `Process`)
-  plus higher-level functions **written in Elixir itself** and compiled by
-  elixism (`Enum.scan`/`reduce_while`/`split_with`/`chunk_by`/`map_reduce`/
+  `Keyword`, `List`, `Tuple`, `String`, `Integer`, `Float`, `IO`, `Process`,
+  `MapSet`) plus higher-level functions **written in Elixir itself** and compiled
+  by elixism (`Enum.scan`/`reduce_while`/`split_with`/`chunk_by`/`map_reduce`/
   `take_every`/…, `Integer.digits`/`undigits`, `List.zip`/`unzip`) — the same
   layering the real Elixir stdlib uses. See `module/elixir/corelib.scm`.
+* **Native JSON** — `Jason.encode!/decode!` (and `Jason.encode/decode`, the
+  `JSON.*` module from Elixir 1.18) implemented natively in the runtime, so it
+  works identically on the host, the Cloudflare edge, and Node. `decode/2`
+  supports `keys: :atoms`.
+* **Regex** — `~r/…/` literals and `Regex.match?/run/scan/replace/split` /
+  `String.match?`, backed by a backtracking engine **written in Zig** and wired
+  as a compute kernel (a native FFI on the host, a sibling Wasm module on the
+  edge). Flags `i`/`m`/`s`/`x`.
 * **Concurrency** — `spawn`/`spawn_link`, `send`, `receive` (selective, with
   `after` timeouts), `self`, `Process.sleep`/`monitor`/`link`/`exit`/`alive?`/
   `flag(:trap_exit)`/`register`/`whereis`, crash isolation, `:DOWN`/`:EXIT`
@@ -68,7 +76,7 @@ Needs a stock **Guile 3** (`brew install guile` / `apt install guile-3.0`).
 
 ```sh
 make build                     # precompile the runtime to Guile bytecode (~6x faster)
-make test                      # run the full suite (241 tests)
+make test                      # run the full suite (325 tests)
 ./bin/exc run examples/fib.ex  # compile & run an .ex file on the host VM
 ./bin/exc eval '1..10 |> Enum.sum()'
 ./bin/exc repl                 # interactive REPL
@@ -126,6 +134,31 @@ A quick single-file path also exists:
 make wasm F=examples/fib.ex HOOT_DIR=../hoot   # -> build/fib.scm, build/fib.wasm
 ```
 
+## Running as a web server (host runtime owns the transport)
+
+Elixism ships an HTTP runtime where the Elixir app is **business logic only** —
+JSON encoding, HTTP status/headers/CORS, and the socket layer all live in the
+runtime and host, not in the Elixir source. A request is a pure function:
+
+```elixir
+# the whole app contract — see playground/elixism/playground_app.ex
+Endpoint.handle(method, path, body) :: "STATUS\n<json body>"
+```
+
+The host splits the status line, sets the HTTP status, and streams the
+already-encoded JSON body through (it does **zero** JSON work). Two hosts run
+the *same* compiled program:
+
+* **Cloudflare Workers** — a thin, [workers-rs](https://github.com/cloudflare/workers-rs)-styled
+  JS layer (`Router`/`Resp`/`createApp`) over workerd's native `URL`/`Headers`;
+  native edge routes (CORS preflight, `/healthz`) bypass the Wasm entirely. See
+  [`../elixism-worker/`](../elixism-worker/). Live demo (echoes `"Elixism!"`):
+  **<https://elixism.sola.day/play>**.
+* **Node.js** — a real `node:http` server over the same Wasm program and the
+  Zig regex kernel: `cd wasm-node && npm run build:server && npm run serve`
+  (≈4,600 req/s sequential on the playground app). See
+  [`wasm-node/server.js`](wasm-node/server.js).
+
 The browser harness in [`web/`](web/) boots a `.wasm` and wires up `IO.puts`.
 See [design/gc.md](design/gc.md) for how Elixir values use Wasm GC and
 [design/processes.md](design/processes.md) for how the scheduler maps onto
@@ -145,7 +178,7 @@ module/elixir/
   corelib.scm    higher-level stdlib written in Elixir (loaded at reset)
   eval.scm       host backend: compile -> bytecode -> run
 bin/exc          CLI: run / eval / compile / wasm / repl
-test/            241 tests across lexer, parser, runtime, integration, corelib, process
+test/            325 tests across lexer, parser, runtime, integration, corelib, process
 design/          abi.md, processes.md, gc.md
 examples/        sample .ex programs
 ```
@@ -156,7 +189,7 @@ examples/        sample .ex programs
 make test
 ```
 
-241 tests: `test-lexer`, `test-parser`, `test-runtime` (value model),
+325 tests: `test-lexer`, `test-parser`, `test-runtime` (value model),
 `test-integration` (full programs end-to-end), `test-corelib` (the
 Elixir-written stdlib), `test-process` (concurrency). Because the compiler
 targets plain Scheme, the entire suite runs on stock Guile 3 — only final Wasm

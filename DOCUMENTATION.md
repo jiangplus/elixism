@@ -312,8 +312,18 @@ The stdlib is layered exactly as the real Elixir one is:
 
 - **`kernel.scm` — the Scheme-implemented core.** `Kernel`, `Enum`, `Map`,
   `Keyword`, `List`, `Tuple`, `String`, `Integer`, `Float`, `IO`, `Process`,
-  plus `GenServer`/`Supervisor`. `install-stdlib!` registers all of these into
-  the dispatch registry.
+  `MapSet`, plus `GenServer`/`Supervisor`. `install-stdlib!` registers all of
+  these into the dispatch registry. It also installs:
+  - **Native JSON** (`install-json!`) — `Jason.encode!/decode!`,
+    `Jason.encode/decode`, and the Elixir-1.18 `JSON.*` module. A pure-Scheme
+    recursive encoder/decoder (helpers prefixed `exjson-`); maps→objects (drops
+    `__struct__`), atoms→strings, tuples→arrays; `decode/2` honours
+    `keys: :atoms`. Because it rides `install-stdlib!`, it is identical on the
+    host, the Cloudflare edge, and Node.
+  - **Regex** (host: `regex.scm` via FFI; edge: the `re.exec` import in
+    `bundle.scm`) — `Regex.match?/run/scan/replace/split`, `String.match?`, and
+    `~r/…/`, backed by a backtracking engine written in **Zig**
+    (`zig-rt/src/regex.zig`). See §6/§11.
 - **`corelib.scm` — higher-level functions written in Elixir itself** and
   compiled by Elixism at reset: e.g. `Enum.scan`/`reduce_while`/`split_with`/
   `chunk_by`/`map_reduce`/`take_every`, `Integer.digits`/`undigits`,
@@ -351,12 +361,17 @@ Exports `elixir-compile`, `elixir-eval`, `elixir-run`, `reset-elixir!`,
 4. emits a tail selected by a **mode** argument:
    - `print` (default) — run `Tests.run/0` and print the summary via `host.print`;
    - `handler` — leave the program's final value a procedure
-     `(method path body) → json-string`, so a JS/Wasm host can call into the
-     compiled Elixir per request.
+     `(method path body) → "STATUS\n<json body>"`, so a JS/Wasm host can call
+     into the compiled Elixir per request. The body is encoded by the runtime's
+     native `Jason`; the host splits the status line and frames the HTTP
+     response (status, headers, CORS) — doing **zero** JSON work itself.
 
 `build.sh` then compiles the bundle with Hoot (`guild compile-wasm`, or
-`hoot compile` when usable) and copies Hoot's JS runtime (`reflect.js` +
-`reflect.wasm` + `wtf8.wasm`).
+`hoot compile` when usable), copies Hoot's JS runtime (`reflect.js` +
+`reflect.wasm` + `wtf8.wasm`), and builds/copies the Zig regex module
+(`elixism_re.wasm`), wired as the `re` host import. `build.sh` takes an optional
+`[mode] [entry]` so the same script builds both the `print`-mode test program
+and the `handler`-mode web server.
 
 Two **Hoot 0.9** details the harnesses handle automatically:
 
@@ -367,13 +382,20 @@ Two **Hoot 0.9** details the harnesses handle automatically:
   reflects as a `MutableString` wrapper rather than a native JS string; the Node
   side coerces it via the reflector's `string_value` before use.
 
-Two runnable Wasm targets ship today:
+Three runnable Wasm targets ship today, all running the *same* compiled program
+through different host shells:
 
-- `wasm-node/` — compiles the **standard library** to Wasm and runs a 54-check
-  Elixir test program under Node (`./build.sh && node run.js`).
-- `../playground/elixism/wasm/` — compiles a **Phoenix-shaped web app** and
-  serves it over **real HTTP**: a Node `http.createServer` calls into the
-  Wasm-compiled request handler per request (`./build.sh && node server.js`).
+- `wasm-node/` (test) — compiles the **standard library** to Wasm and runs a
+  54-check Elixir test program under Node (`./build.sh && node run.js`).
+- `wasm-node/server.js` (Node web server) — a real `node:http` server over a
+  `handler`-mode program plus the Zig regex kernel
+  (`npm run build:server && npm run serve`; ≈4,600 req/s on the playground).
+- `../elixism-worker/` (Cloudflare) — a thin, workers-rs-styled JS layer
+  (`Router`/`Resp`/`createApp`) over workerd's native primitives; native edge
+  routes (CORS preflight, `/healthz`) bypass the Wasm. Live demo (echoes
+  `"Elixism!"`): <https://elixism.sola.day/play>. The design intentionally keeps
+  a single Wasm module rather than rewriting the host in Rust workers-rs (which
+  would add a wasm↔wasm JS hop with no parsing win).
 
 ---
 

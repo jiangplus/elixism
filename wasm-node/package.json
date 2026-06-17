@@ -6,6 +6,8 @@
   "license": "Apache-2.0",
   "scripts": {
     "build": "./build.sh",
-    "test": "node run.js"
+    "build:server": "./build.sh ../../playground/elixism/playground_app.ex handler",
+    "test": "node run.js",
+    "serve": "node server.js"
   }
 }

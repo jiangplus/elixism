@@ -69,6 +69,31 @@ must define a `Tests.run/0` returning a summary string).
 - **`run.js`** — boots `program.wasm` with Hoot's `reflect.js`, supplies the
   `host.print` import, and checks the summary.
 
+## Web server (`server.js`)
+
+The same Wasm pipeline also serves HTTP. Instead of `Tests.run/0`, bundle a
+**handler-mode** program whose value is `Endpoint.handle/3`, then serve it over
+Node's native `node:http`:
+
+```sh
+npm run build:server     # ./build.sh ../../playground/elixism/playground_app.ex handler
+npm run serve            # node server.js  (port 8080; or: node server.js program.wasm 8088)
+```
+
+`server.js` is a thin host: it reads the request with Node's native parser,
+calls `handler.call(method, path, body)` (which returns `"STATUS\n<json body>"`),
+splits the status line, and writes the response — doing **zero** JSON work
+itself (the runtime's native `Jason` already encoded the body). The Zig regex
+engine (`elixism_re.wasm`) is wired as the `re` host import, so `~r/…/` works.
+Native edge routes (`OPTIONS` preflight, `/healthz`) bypass the Wasm entirely.
+
+This is the Node counterpart of the Cloudflare deployment in
+[`../../elixism-worker/`](../../elixism-worker/) — the *same* compiled program,
+a different host shell. The build script takes an optional `[mode] [entry]`:
+`./build.sh <app.ex> handler [Module.fun/arity]` (default entry
+`Playground.Endpoint.handle/3`); with no mode it builds the `print`-mode test
+program for `run.js`.
+
 ## Scope
 
 This demo covers the **functional standard library** running in Wasm. The

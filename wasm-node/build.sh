@@ -2,8 +2,15 @@
 # Build an elixism program to WebAssembly for Node.js.
 # SPDX-License-Identifier: Apache-2.0
 #
-# Usage:  ./build.sh [program.ex]        (default: tests.ex)
+# Usage:  ./build.sh [program.ex] [mode] [entry]   (default: tests.ex print)
 #         HOOT_DIR=/path/to/hoot ./build.sh
+#
+#   mode  = "print"   (run Tests.run, for run.js) or
+#           "handler" (leave Endpoint.handle as the value, for server.js)
+#   entry = Module.fun/arity for handler mode (default Playground.Endpoint.handle/3)
+#
+# Build the web-server program:
+#   ./build.sh ../playground/elixism/playground_app.ex handler
 #
 # Pipeline:
 #   1. bundle.scm flattens the elixism runtime + AOT-compiles the Elixir
@@ -20,6 +27,14 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/.." && pwd)
 HOOT_DIR=${HOOT_DIR:-"$ROOT/../hoot"}
 PROG=${1:-"$HERE/tests.ex"}
+MODE=${2:-"print"}
+ENTRY=${3:-"Playground.Endpoint.handle/3"}
+# Resolve PROG to an absolute path — bundle.scm runs after `cd "$ROOT"`, so a
+# path relative to the caller's cwd would otherwise be misinterpreted.
+case "$PROG" in
+  /*) : ;;
+  *) PROG="$(cd "$(dirname "$PROG")" && pwd)/$(basename "$PROG")" ;;
+esac
 
 if [ ! -x "$HOOT_DIR/pre-inst-env" ]; then
   echo "Hoot toolchain not found at $HOOT_DIR (set HOOT_DIR)." >&2
@@ -28,7 +43,7 @@ if [ ! -x "$HOOT_DIR/pre-inst-env" ]; then
 fi
 
 echo "==> Bundling runtime + $(basename "$PROG") -> program.scm"
-( cd "$ROOT" && guile -L module --no-auto-compile wasm-node/bundle.scm "$PROG" ) > "$HERE/program.scm"
+( cd "$ROOT" && guile -L module --no-auto-compile wasm-node/bundle.scm "$PROG" "$MODE" "$ENTRY" ) > "$HERE/program.scm"
 
 echo "==> Compiling program.scm -> program.wasm (Hoot)"
 # Prefer the Hoot 0.9 `hoot compile` CLI; fall back to `guild compile-wasm`

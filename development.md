@@ -164,6 +164,48 @@ struct alias 解析、缺省参数宏、`bind_quoted: binding()`、`for...into: 
 
 ---
 
+## 正则引擎(Zig 计算内核)
+
+`~r/…/` 与 `Regex.*` 从桩变为真实实现。引擎用 **Zig 0.16** 写成回溯式正则 VM
+(`zig-rt/src/regex.zig`:pattern→AST→字节码→递归匹配,支持 literal/字符类/锚点/
+`\b`/贪婪+惰性量词/分组/选择/反向引用,标志 `i m s x`)。这是 Zig 的正确用法 ——
+Zig 不能造 WasmGC 对象,但擅长**粗粒度计算内核**(一次跨界、大量计算):
+
+- **宿主**:`module/elixir/regex.scm` 通过 Guile FFI(`dynamic-link`)调 `libelixism_re`。
+- **边缘/Node**:同一引擎编译成 sibling wasm(`elixism_re.wasm`),作为 `re.exec` 宿主
+  导入注入(一次 string-in/string-out:`pattern,flags,subject,start → "s0,l0,…"`)。
+  之所以全用 `(ref string)`:数值/混合参数会触发 Hoot 的 WasmGC "illegal cast"。
+
+## HTTP 运行时:瘦 Elixir、肥运行时
+
+把 Web 传输从 Elixir 业务代码里抽出来,放进运行时和宿主。Elixir 应用只剩业务逻辑。
+
+- **原生 JSON**(`kernel.scm` 的 `install-json!`,经 `install-stdlib!` 安装,宿主/边缘/
+  Node 三处共享):`Jason.encode!/decode!`、`Jason.encode/decode`、Elixir 1.18 的
+  `JSON.*`。纯 Scheme 递归编/解码,辅助函数前缀 `exjson-`。删掉了 playground 里手写的
+  `Playground.JSON`。
+- **应用契约**:`Endpoint.handle(method, path, body) -> "STATUS\n<json body>"`。宿主
+  按状态行切一刀、设 HTTP 状态、原样透传已编码的 body —— 宿主侧**零** JSON 工作。
+- **Cloudflare**(`elixism-worker/`):瘦 JS,仿 [workers-rs](https://github.com/cloudflare/workers-rs)
+  的 `Router`/`Resp`/`createApp` 人体工学,跑在 workerd 原生 `URL`/`Headers` 之上;
+  原生边缘路由(CORS 预检、`/healthz`)完全不进 Wasm。**没选真 Rust workers-rs**:
+  Rust→线性内存 wasm 调 Hoot 的 WasmGC 模块要多一跳 JS 桥,而 workerd 解析本就是原生
+  C++,无收益。线上:**<https://elixism.sola.day/play>**(回显 `"Elixism!"`)。
+- **Node**(`wasm-node/server.js`):真正的 `node:http` 服务器,同一 Wasm 程序 + Zig 正则
+  内核 + 同样的 framing/原生路由。playground 上 ≈4,600 req/s(顺序、单线程)。
+
+**两个踩坑(留作后人参考)**:
+1. **Guile/Hoot `should have folded!` 编译器崩溃**:递归 cond 里
+   `((and (integer? v) (exact? v)) …)` 紧跟 `((number? v) …)` 会让 CPS 类型折叠器崩溃。
+   宿主会**静默退回解释器**(测试照过!),但 `guild compile-wasm` 是致命错。解法:合并成
+   单个 `((number? v) …)` 分支。另:Hoot 库已占用一些常见辅助名(`json-hex4` 等),flatten
+   进 bundle 的辅助函数要加前缀(`exjson-*`)。
+2. **`elixism-worker/justfile` 写错目录**:`cd ../elixism && … > "$(realpath .)/program.scm"`
+   —— `realpath .` 在 cd **之后**求值,写进了 `elixism/`,于是用**旧的**本地 scm 编译 wasm。
+   改用 `{{justfile_directory()}}`。
+
+---
+
 ## 与 Elixir 的兼容性缺口(历史快照,宏部分见上)
 
 按**影响程度**从大到小。
@@ -199,7 +241,7 @@ struct alias 解析、缺省参数宏、`bind_quoted: binding()`、`for...into: 
 
 ### 四、语法层小缺口
 
-- **Sigils**:只有 `~w ~W ~s ~c ~r`(`~r` 还只是桩);缺 `~S ~C ~U ~b ~x` 和自定义 sigil。
+- **Sigils**:`~w ~W ~s ~c ~r`(`~r` 已是真实正则,见上「正则引擎」节);缺 `~S ~C ~U ~b ~x` 和自定义 sigil。
 - **Heredoc**(`"""..."""`)完全没有。
 - **非字节对齐的二进制尾**(`<<...rest::bits>>` 起点不在字节边界)未实现。
 - **`foo arg do...end`** 裸调用块有意不支持,只有特殊形式接受 `do...end`。
@@ -211,7 +253,7 @@ struct alias 解析、缺省参数宏、`bind_quoted: binding()`、`for...into: 
 - **没有 `Keyword` 模块**(关键字列表只能当 tuple 列表手撸)。
 - **没有 `Task` / `Agent` / `Application` / `Registry` / `ETS`**(但 `GenServer`/`Supervisor` 有原生实现)。
 - `Kernel.apply/2-3` 不是公开函数;`==`/`===` 等只作为运算符存在,不能当函数传。
-- `Enum` 缺惰性 `Stream`、`slice`;`String` 缺 `jaro_distance`、真正的正则。
+- `Enum` 缺 `slice`;`String` 缺 `jaro_distance`。(`Stream`、真正的正则、原生 `Jason`/`JSON` 现已具备,见上。)
 - 无运行时自省(`Code`、`Module.get_attribute`、`__info__`)。
 
 ### 优先级建议(若目标是跑通更多真实库)

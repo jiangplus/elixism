@@ -701,6 +701,30 @@ def go, do: hello()
 end
 App.go")))
 
+     ;; --- native JSON (Jason / JSON) ---
+     (deftest "json encode scalars"
+       (assert-equal "[1,\"a\",true,false,null]"
+                     (ev "Jason.encode!([1, \"a\", true, false, nil])")))
+     (deftest "json encode map + nesting"
+       (assert-equal "{\"a\":1,\"b\":[2,{\"c\":\"x\"}]}"
+                     (ev "Jason.encode!(%{a: 1, b: [2, %{c: \"x\"}]})")))
+     (deftest "json encode atom value"
+       (assert-equal "\"ok\"" (ev "Jason.encode!(:ok)")))
+     (deftest "json decode object string keys"
+       (assert-equal 1 (ev "Map.get(Jason.decode!(\"{\\\"a\\\":1}\"), \"a\")")))
+     (deftest "json decode atoms option"
+       (assert-equal 1 (ev "Map.get(Jason.decode!(\"{\\\"a\\\":1}\", keys: :atoms), :a)")))
+     (deftest "json decode array + float + bool"
+       (assert-equal "[1, 2.5, true, nil]"
+                     (ev* "Jason.decode!(\"[1, 2.5, true, null]\")")))
+     (deftest "json roundtrip"
+       (assert-equal 'true
+         (ev "m = %{\"name\" => \"x\", \"n\" => 3}\nJason.decode!(Jason.encode!(m)) == m")))
+     (deftest "json decode ok tuple"
+       (assert-equal "{:ok, 1}" (ev* "Jason.decode(\"1\")")))
+     (deftest "json string escaping"
+       (assert-equal "\"a\\\"b\\n\"" (ev "Jason.encode!(\"a\\\"b\\n\")")))
+
      ;; --- errors ---
      (deftest "match error raises"
        (assert-raises (lambda () (ev "{:ok, x} = {:error, 1}"))))
