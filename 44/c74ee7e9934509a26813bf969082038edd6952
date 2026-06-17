@@ -1,0 +1,23 @@
+test/test-integration.scm
+  s_8e9977ffd5237f::t_ebde0b20db925a 597-607
+bench-graph/README.md
+  s_8e9977ffd5237f::t_8c8188c053aa38 1-23
+bench-graph/run-decimal.sh
+  s_8e9977ffd5237f::t_3c3604510cad36 1-58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "44c74ee7e9934509a26813bf969082038edd6952",
+  "prompts": {},
+  "sessions": {
+    "s_8e9977ffd5237f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa7bf6bc-f474-4925-a494-a8ea455f13a6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
