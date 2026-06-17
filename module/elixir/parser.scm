@@ -443,7 +443,7 @@
       ((#\w) `(list ,(map (lambda (w) (sigil-word w mods)) (split-ws content)) #f))
       ((#\s) `(string ,content))
       ((#\c) `(charlist ,content))
-      ((#\r) `(tuple ((atom Regex) (string ,content))))
+      ((#\r) `(tuple ((atom Regex) (string ,content) (string ,mods))))
       (else (error "elixir parser: unsupported sigil" letter)))))
 
 (define (sigil-word w mods)

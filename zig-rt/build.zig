@@ -28,4 +28,25 @@ pub fn build(b: *std.Build) void {
     wasm.rdynamic = true;
     const wasm_step = b.step("wasm", "Build the WASM runtime module");
     wasm_step.dependOn(&b.addInstallArtifact(wasm, .{}).step);
+
+    // Native shared library exposing the regex C ABI for the host (Guile FFI).
+    const cabi = b.createModule(.{
+        .root_source_file = b.path("src/cabi.zig"),
+        .target = target,
+        .optimize = .ReleaseFast,
+    });
+    const lib = b.addLibrary(.{ .name = "elixism_re", .root_module = cabi, .linkage = .dynamic });
+    b.installArtifact(lib);
+
+    // The regex engine as a wasm module too (edge path).
+    const re_wasm_mod = b.createModule(.{
+        .root_source_file = b.path("src/cabi.zig"),
+        .target = wasm_target,
+        .optimize = .ReleaseFast,
+    });
+    const re_wasm = b.addExecutable(.{ .name = "elixism_re", .root_module = re_wasm_mod });
+    re_wasm.entry = .disabled;
+    re_wasm.rdynamic = true;
+    const re_wasm_step = b.step("re-wasm", "Build the regex engine as a wasm module");
+    re_wasm_step.dependOn(&b.addInstallArtifact(re_wasm, .{}).step);
 }

@@ -24,10 +24,17 @@ help:
 # this project's cached .go first so all modules recompile together: Guile's
 # auto-compile keys staleness on each file's own mtime, so editing a module that
 # others *inline* from (e.g. dispatch) would otherwise leave stale dependents.
-build:
+build: zig-re
 	@rm -f "$(HOME)/.cache/guile/ccache/"*"$(CURDIR)/module/elixir/"*.go 2>/dev/null || true
 	@$(GUILE) -L module -c '(use-modules (elixir eval) (elixir kernel) (elixir compiler))' \
 	  && echo "runtime modules compiled to Guile bytecode cache"
+
+# Native Zig regex engine (libelixism_re), used by the host Regex.* via FFI.
+.PHONY: zig-re
+zig-re:
+	@command -v zig >/dev/null 2>&1 && (cd zig-rt && zig build >/dev/null 2>&1 \
+	  && echo "built zig-rt/libelixism_re (regex engine)") \
+	  || echo "zig not found; Regex.* will be unavailable on the host"
 
 # Run every suite; exits non-zero on failure.
 test check: build

@@ -4,4 +4,5 @@ test {
     _ = @import("value.zig");
     _ = @import("term.zig");
     _ = @import("hamt.zig");
+    _ = @import("regex.zig");
 }

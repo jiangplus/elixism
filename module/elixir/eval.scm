@@ -17,6 +17,7 @@
   #:use-module (elixir process)
   #:use-module (elixir kernel)
   #:use-module (elixir corelib)
+  #:use-module (elixir regex)
   #:use-module (system base compile)
   #:export (elixir-compile elixir-eval elixir-run reset-elixir! elixir-env))
 
@@ -32,6 +33,7 @@
   (make-initial-scheduler!)
   (install-stdlib!)            ; Scheme primitives
   (load-corelib!)              ; Elixir-written stdlib on top
+  (install-regex!)             ; native Zig regex engine (host, via FFI)
   (set! *installed* #t))
 
 ;; Compile the Elixir core library once, then (re-)register it on every reset.

@@ -643,6 +643,24 @@ m = Map.merge(a, b)
         (ev "m = Enum.reduce(1..40, %{}, fn i, acc -> Map.put(acc, \"k#{i}\", i) end)
 length(Map.to_list(m))")))
 
+     ;; --- regex (native Zig engine via FFI; ~r sigil) ---
+     (deftest "Regex.match? + flags"
+       (assert-equal 'true (ev "Regex.match?(~r/hello/i, \"oh HELLO\")")))
+     (deftest "Regex.run captures"
+       (assert-equal "[\"12-345\", \"12\", \"345\"]"
+        (ev* "Regex.run(~r/(\\d+)-(\\d+)/, \"x 12-345 y\")")))
+     (deftest "Regex.scan"
+       (assert-equal "[[\"foo\"], [\"bar\"], [\"baz\"]]"
+        (ev* "Regex.scan(~r/\\w+/, \"foo bar baz\")")))
+     (deftest "Regex.replace with backref"
+       (assert-equal "to bar.foo now"
+        (ev "Regex.replace(~r/(\\w+)@(\\w+)/, \"to foo@bar now\", \"\\\\2.\\\\1\")")))
+     (deftest "Regex.split"
+       (assert-equal "[\"a\", \"b\", \"c\"]"
+        (ev* "Regex.split(~r/,\\s*/, \"a, b,c\")")))
+     (deftest "Regex anchors + quantifiers"
+       (assert-equal 'false (ev "Regex.match?(~r/^\\d{3}$/, \"12\")")))
+
      ;; --- module attributes (@-attrs) ---
      (deftest "attribute read"
        (assert-equal 5000 (ev "defmodule M do
