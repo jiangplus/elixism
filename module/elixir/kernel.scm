@@ -526,9 +526,13 @@
           (else (loop (cdr lst) (emap-put seen (car lst) #t) (cons (car lst) out))))))
 
 (define (group-by lst f)
-  (fold (lambda (x m) (let ((k (f x)))
-                        (emap-put m k (append (emap-ref m k '()) (list x)))))
-        (make-emap) lst))
+  ;; accumulate each group reversed (O(1) cons), then restore order once — O(n)
+  ;; instead of O(group^2) from append-per-element.
+  (let ((m (fold (lambda (x acc) (let ((k (f x)))
+                                   (emap-put acc k (cons x (emap-ref acc k '())))))
+                 (make-emap) lst)))
+    (fold (lambda (kv acc) (emap-put acc (car kv) (reverse (cdr kv))))
+          (make-emap) (emap->alist m))))
 (define (frequencies lst)
   (fold (lambda (x m) (emap-put m x (+ 1 (emap-ref m x 0)))) (make-emap) lst))
 (define (chunk-every lst n)
