@@ -629,6 +629,15 @@ M.g()")))
 m = Map.delete(m, 1)
 m = Map.put(m, 50, 999)
 {map_size(m), Map.get(m, 50)}")))
+     (deftest "Map.new/merge over large lists (was O(n^2); right wins on overlap)"
+       (assert-equal "{200, 300, 1990}"
+        (ev* "a = Map.new(Enum.map(1..200, fn i -> {i, i} end))
+b = Map.new(Enum.map(150..300, fn i -> {i, i * 10} end))
+m = Map.merge(a, b)
+{map_size(a), map_size(m), Map.get(m, 199)}")))
+     (deftest "Enum.uniq over large list (was O(n^2))"
+       (assert-equal 100
+        (ev "length(Enum.uniq(Enum.map(1..5000, fn i -> rem(i, 100) end)))")))
      (deftest "large map: string keys round-trip via to_list"
        (assert-equal 40
         (ev "m = Enum.reduce(1..40, %{}, fn i, acc -> Map.put(acc, \"k#{i}\", i) end)

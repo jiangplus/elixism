@@ -483,7 +483,7 @@
   (defn 'Enum 'into 2 (lambda (c into) (ex-into into (as-list c))))
   (defn 'Enum 'empty? 1 (lambda (c) (->ex-bool (null? (as-list c)))))
   (defn 'Enum 'flat_map 2 (lambda (c f) (append-map (lambda (x) (as-list (f x))) (as-list c))))
-  (defn 'Enum 'uniq 1 (lambda (c) (delete-duplicates (as-list c) ex-equal?)))
+  (defn 'Enum 'uniq 1 (lambda (c) (enum-uniq (as-list c))))
   (defn 'Enum 'uniq_by 2 (lambda (c f) (uniq-by (as-list c) f)))
   (defn 'Enum 'dedup 1 (lambda (c) (dedup (as-list c))))
   (defn 'Enum 'concat 1 (lambda (c) (apply append (map as-list (as-list c)))))
@@ -518,6 +518,13 @@
 (define (drop-while-ex lst f)
   (if (or (null? lst) (not (ex-truthy? (f (car lst))))) lst
       (drop-while-ex (cdr lst) f)))
+;; Enum.uniq in O(n log n): a HAMT-backed seen-set instead of O(n^2) scanning.
+(define (enum-uniq lst)
+  (let loop ((lst lst) (seen (make-emap)) (out '()))
+    (cond ((null? lst) (reverse out))
+          ((emap-has-key? seen (car lst)) (loop (cdr lst) seen out))
+          (else (loop (cdr lst) (emap-put seen (car lst) #t) (cons (car lst) out))))))
+
 (define (group-by lst f)
   (fold (lambda (x m) (let ((k (f x)))
                         (emap-put m k (append (emap-ref m k '()) (list x)))))
@@ -552,7 +559,8 @@
   (defn 'Map 'keys 1 (lambda (m) (emap-keys m)))
   (defn 'Map 'values 1 (lambda (m) (emap-values m)))
   (defn 'Map 'size 1 (lambda (m) (emap-size m)))
-  (defn 'Map 'merge 2 (lambda (a b) (alist->emap (append (emap->alist a) (emap->alist b)))))
+  (defn 'Map 'merge 2
+    (lambda (a b) (fold (lambda (kv m) (emap-put m (car kv) (cdr kv))) a (emap->alist b))))
   (defn 'Map 'update! 3 (lambda (m k f) (emap-put m k (f (emap-ref m k 'nil)))))
   (defn 'Map 'update 4 (lambda (m k d f) (if (emap-has-key? m k) (emap-put m k (f (emap-ref m k 'nil))) (emap-put m k d))))
   (defn 'Map 'put_new 3 (lambda (m k v) (if (emap-has-key? m k) m (emap-put m k v))))

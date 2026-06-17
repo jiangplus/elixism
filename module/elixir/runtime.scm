@@ -281,8 +281,9 @@
         (%make-emap al n))))
 
 (define (alist->emap al)
-  ;; later pairs win, like Map.new/1
-  (mk-from-alist (fold-right (lambda (kv acc) (alist-set acc (car kv) (cdr kv))) '() al)))
+  ;; later pairs win, like Map.new/1.  Insert one at a time so large inputs go
+  ;; straight through the HAMT (O(n log n)) instead of building an O(n^2) alist.
+  (fold (lambda (kv acc) (emap-put acc (car kv) (cdr kv))) (make-emap) al))
 
 (define (emap-ref m k default)
   (let ((r (emap-repr m))) (if (vector? r) (hamt-get r k default) (alist-get r k default))))
