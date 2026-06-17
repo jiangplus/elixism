@@ -1,0 +1,35 @@
+wasm-node/build.sh
+  s_8e9977ffd5237f::t_4195d6f0562e3d 53-59
+wasm-node/bundle.scm
+  s_8e9977ffd5237f::t_8440c32ec1d141 143
+  s_8e9977ffd5237f::t_4b78939da37f56 210
+  s_8e9977ffd5237f::t_61cb98bf0efdf4 70
+  s_8e9977ffd5237f::t_be164ceb57902b 138-142
+  s_8e9977ffd5237f::t_dd00efaa00e876 233-234,238,244-245
+  s_8e9977ffd5237f::t_dde692a6460fbc 202-208,211-215
+  s_8e9977ffd5237f::t_ead767d77e403a 247
+  s_8e9977ffd5237f::t_51a118cb987a12 216-218
+  s_8e9977ffd5237f::t_a0072d687c8137 199-201,209,219-232,235-237,239-243,246,248-252
+wasm-node/run.js
+  s_8e9977ffd5237f::t_6da74a382df7c6 39-40,43,46
+  s_8e9977ffd5237f::t_ef32af63003b33 35-37,41-42,44-45,47-51
+  s_8e9977ffd5237f::t_a3b98e1777bc83 18-34,38,52-53,57,60
+module/elixir/regex.scm
+  s_8e9977ffd5237f::t_374aa4c0e3ce77 212,216-223
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "c0d69a04fbe632d1eb5a7d4c8657d81df593ec0f",
+  "prompts": {},
+  "sessions": {
+    "s_8e9977ffd5237f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa7bf6bc-f474-4925-a494-a8ea455f13a6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
