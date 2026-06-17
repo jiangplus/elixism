@@ -17,6 +17,7 @@ export fn re_compile(pat: [*]const u8, pat_len: u32, flags: u32) i32 {
         .icase = (flags & 1) != 0,
         .multiline = (flags & 2) != 0,
         .dotall = (flags & 4) != 0,
+        .extended = (flags & 8) != 0,
     };
     var compiled = re.compile(alloc, pat[0..pat_len], f) catch return -1;
     for (&table, 0..) |*slot, i| {

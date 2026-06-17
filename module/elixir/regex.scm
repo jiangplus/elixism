@@ -82,7 +82,7 @@
 (define %absent (list 'absent))
 (define (opts->flags s)
   (fold (lambda (ch acc)
-          (+ acc (case ch ((#\i) 1) ((#\m) 2) ((#\s) 4) (else 0))))
+          (+ acc (case ch ((#\i) 1) ((#\m) 2) ((#\s) 4) ((#\x) 8) (else 0))))
         0 (string->list s)))
 (define (regex-parts v)
   (cond

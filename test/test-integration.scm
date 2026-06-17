@@ -660,6 +660,9 @@ length(Map.to_list(m))")))
         (ev* "Regex.split(~r/,\\s*/, \"a, b,c\")")))
      (deftest "Regex anchors + quantifiers"
        (assert-equal 'false (ev "Regex.match?(~r/^\\d{3}$/, \"12\")")))
+     (deftest "Regex extended (x) flag"
+       (assert-equal "[\"12-345\", \"12\", \"345\"]"
+        (ev* "Regex.run(~r/\\A (\\d+) - (\\d+) \\z/x, \"12-345\")")))
 
      ;; --- module attributes (@-attrs) ---
      (deftest "attribute read"

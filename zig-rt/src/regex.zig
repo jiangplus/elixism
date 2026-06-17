@@ -16,6 +16,7 @@ pub const Flags = struct {
     icase: bool = false,
     multiline: bool = false,
     dotall: bool = false,
+    extended: bool = false, // `x`: ignore unescaped whitespace and #-comments
 };
 
 pub const Error = error{ BadPattern, OutOfMemory, BudgetExceeded };
@@ -87,8 +88,21 @@ const Parser = struct {
         return ptr;
     }
 
+    // In `x` mode, skip unescaped whitespace and `#`-to-end-of-line comments.
+    fn skipExt(p: *Parser) void {
+        if (!p.flags.extended) return;
+        while (p.peek()) |c| {
+            if (c == ' ' or c == '\t' or c == '\n' or c == '\r') {
+                p.pos += 1;
+            } else if (c == '#') {
+                while (p.next()) |cc| if (cc == '\n') break;
+            } else break;
+        }
+    }
+
     fn parseAlt(p: *Parser) Error!*Node {
         var left = try p.parseConcat();
+        p.skipExt();
         while (p.eat('|')) {
             const right = try p.parseConcat();
             const kids = try p.arena.alloc(*Node, 2);
@@ -101,7 +115,9 @@ const Parser = struct {
 
     fn parseConcat(p: *Parser) Error!*Node {
         var list = std.ArrayListUnmanaged(*Node).empty;
-        while (p.peek()) |c| {
+        while (true) {
+            p.skipExt();
+            const c = p.peek() orelse break;
             if (c == '|' or c == ')') break;
             try list.append(p.arena, try p.parseRepeat());
         }
@@ -112,6 +128,7 @@ const Parser = struct {
 
     fn parseRepeat(p: *Parser) Error!*Node {
         const atom = try p.parseAtom();
+        p.skipExt();
         const c = p.peek() orelse return atom;
         var node: *Node = undefined;
         switch (c) {
@@ -650,6 +667,15 @@ test "case-insensitive and backref" {
     try testing.expect(try matchOK("hello", "HELLO", .{ .icase = true }));
     try testing.expect(try matchOK("(\\w)\\1", "look", .{})); // 'oo'
     try testing.expect(!try matchOK("(\\w)\\1", "abc", .{}));
+}
+
+test "extended (x) mode" {
+    // whitespace and #-comments in the pattern are ignored
+    try testing.expect(try matchOK("\\A (\\d+) - (\\d+) \\z # a range", "12-345", .{ .extended = true }));
+    try testing.expect(try matchOK("a b c", "abc", .{ .extended = true }));
+    try testing.expect(!try matchOK("a b c", "a b c", .{ .extended = true }));
+    // a literal space must be escaped or in a class
+    try testing.expect(try matchOK("a\\ b", "a b", .{ .extended = true }));
 }
 
 test "multiline and dotall" {
