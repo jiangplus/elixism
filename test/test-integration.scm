@@ -594,6 +594,17 @@ M.f()")))
         (ev "defmodule A.B do\ndefstruct n: 0\nend\ndefmodule M do\nalias A.B\ndef mk(x), do: %B{n: x}\ndef get(%B{n: n}), do: n\nend\nM.get(M.mk(7))")))
      (deftest "binary size(N) segment"
        (assert-equal 258 (ev "<<hi, lo>> = <<1::size(8), 2::size(8)>>\nhi * 256 + lo")))
+     (deftest "quote bind_quoted: binding()"
+       (assert-equal "{3, 4, 7}"
+        (ev* "defmodule M do
+defmacrop combine(a, b) do
+quote bind_quoted: binding() do
+{a, b, a + b}
+end
+end
+def f(x, y), do: combine(x, y)
+end
+M.f(3, 4)")))
      (deftest "macro with default arg, called at lower arity"
        (assert-equal "{1, 2, nil}"
         (ev* "defmodule M do
