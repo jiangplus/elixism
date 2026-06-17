@@ -50,6 +50,13 @@ if command -v wasm-opt >/dev/null 2>&1; then
     && mv "$HERE/program.wasm.opt" "$HERE/program.wasm"
 fi
 
+echo "==> Building the Zig regex engine -> elixism_re.wasm"
+if command -v zig >/dev/null 2>&1; then
+  ( cd "$ROOT/zig-rt" && zig build re-wasm >/dev/null 2>&1 ) \
+    && cp "$ROOT/zig-rt/zig-out/bin/elixism_re.wasm" "$HERE/" \
+    && echo "    copied elixism_re.wasm" || echo "    (zig regex build failed)"
+fi
+
 echo "==> Copying Hoot JS runtime"
 cp "$HOOT_DIR/reflect-js/reflect.js"   "$HERE/"
 cp "$HOOT_DIR/reflect-wasm/reflect.wasm" "$HERE/"

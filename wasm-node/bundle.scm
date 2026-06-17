@@ -67,7 +67,7 @@
                ;; real bytevector ops (R7RS) for the binary value type
                (only (scheme base) make-bytevector bytevector-length
                      bytevector-u8-ref bytevector-u8-set! bytevector-copy!
-                     string->utf8)
+                     string->utf8 utf8->string)
                (hoot ffi)))
 
 ;;; 2a. SRFI-1 functions that Hoot's (guile) does not provide.
@@ -135,6 +135,12 @@
    ;; The JS host owns the database (Node's node:sqlite); Elixir issues SQL
    ;; through it — the same FFI shape Node uses to own the socket.
    (define-foreign %host-sql "host" "sql" (ref string) (ref string) -> (ref string))
+   ;; The native Zig regex engine, instantiated as a sibling wasm module.  One
+   ;; string-in/string-out call (the proven (ref string) boundary; numeric
+   ;; foreign results are finicky across Hoot): given pattern, flags, subject and
+   ;; start, the JS glue compiles (cached) + searches and returns the capture
+   ;; offsets as "s0,l0,s1,l1,…" ("" = no match).
+   (define-foreign %re-exec "re" "exec" (ref string) (ref string) (ref string) (ref string) -> (ref string))
    ;; The process/fiber layer is not part of the functional-stdlib demo; stub
    ;; the names install-stdlib! registers so it can run.
    (define (reduce!) #t)                         ; no pre-emption here
@@ -190,6 +196,60 @@
 ;; Expose the host SQLite bridge to Elixir as Host.sql/2 (Wasm only; on the host
 ;; this module name is simply unregistered).
 (emit '(register-builtin! 'Host 'sql 2 (lambda (q p) (%host-sql q p))))
+
+;;; 4b. Regex.* backed by the Zig engine wasm (edge counterpart of regex.scm).
+(emit-all
+ '(;; "s0,l0,s1,l1,…" -> list of (start . len) pairs, or #f for ""
+   (define (re-split-commas s)
+     (let ((n (string-length s)))
+       (let loop ((i 0) (start 0) (acc '()))
+         (cond ((= i n) (reverse (cons (substring s start i) acc)))
+               ((char=? (string-ref s i) #\,) (loop (+ i 1) (+ i 1) (cons (substring s start i) acc)))
+               (else (loop (+ i 1) start acc))))))
+   (define (re-match source flags subject start)
+     (let ((s (%re-exec source (number->string flags) subject (number->string start))))
+       (if (string=? s "") #f
+           (let loop ((parts (re-split-commas s)) (acc '()))
+             (if (or (null? parts) (null? (cdr parts))) (reverse acc)
+                 (loop (cddr parts)
+                       (cons (cons (string->number (car parts)) (string->number (cadr parts))) acc)))))))
+   ;; The engine reports byte offsets; for ASCII (the common case) byte == char,
+   ;; so substring on the original string avoids a utf8->string round-trip.
+   (define (re-cap->string str p) (if (< (car p) 0) 'nil (substring str (car p) (+ (car p) (cdr p)))))
+   (define (re-opts->flags s)
+     (let loop ((cs (string->list s)) (f 0))
+       (if (null? cs) f
+           (loop (cdr cs) (+ f (case (car cs) ((#\i) 1) ((#\m) 2) ((#\s) 4) (else 0)))))))
+   (define (re-parts v)
+     (cond ((string? v) (values v 0))
+           ((and (tuple? v) (>= (tuple-size v) 2) (eq? (tuple-ref v 0) 'Regex))
+            (values (tuple-ref v 1) (if (>= (tuple-size v) 3) (re-opts->flags (tuple-ref v 2)) 0)))
+           (else (ex-raise (make-tuple 'Regex.InvalidError v)))))
+   (define (re-do-match? re str)
+     (call-with-values (lambda () (re-parts re))
+       (lambda (s f) (->ex-bool (and (re-match s f str 0) #t)))))
+   (define (re-do-run re str)
+     (call-with-values (lambda () (re-parts re))
+       (lambda (s f) (let ((m (re-match s f str 0)))
+                       (if m (map (lambda (p) (re-cap->string str p)) m) 'nil)))))
+   (define (re-do-scan re str)
+     (call-with-values (lambda () (re-parts re))
+       (lambda (s f)
+         (let ((blen (string-length str)))
+           (let loop ((start 0) (acc '()))
+             (if (> start blen) (reverse acc)
+                 (let ((m (re-match s f str start)))
+                   (if (not m) (reverse acc)
+                       (let* ((w (car m)) (mend (+ (car w) (cdr w)))
+                              (item (if (null? (cdr m)) (list (re-cap->string str w))
+                                        (map (lambda (p) (re-cap->string str p)) (cdr m))))
+                              (next (if (= mend (car w)) (+ mend 1) mend)))
+                         (loop next (cons item acc))))))))) ))
+   (register-builtin! 'Regex 'match? 2 (lambda (re s) (re-do-match? re s)))
+   (register-builtin! 'Regex 'run 2 (lambda (re s) (re-do-run re s)))
+   (register-builtin! 'Regex 'scan 2 (lambda (re s) (re-do-scan re s)))
+   (register-builtin! 'Regex 'source 1 (lambda (re) (call-with-values (lambda () (re-parts re)) (lambda (s _) s))))
+   (register-builtin! 'String 'match? 2 (lambda (s re) (re-do-match? re s)))))
 (emit (compile-program (parse corelib-source)))
 
 ;;; 5. The user program (defmodule Tests / Color), AOT-compiled.

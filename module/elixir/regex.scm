@@ -209,6 +209,15 @@
     (defn 'Regex 'split 2 (lambda (re s) (regex-split re s)))
     (defn 'Regex 'replace 3 (lambda (re s r) (regex-replace re s r #t)))
     (defn 'Regex 'replace 4 (lambda (re s r _opts) (regex-replace re s r #t)))
+    (defn 'Regex 'escape 1 (lambda (s) (regex-escape s)))
     ;; String helpers that take a regex
     (defn 'String 'match? 2 (lambda (s re) (regex-match? re s)))
     'ok))
+
+;; Regex.escape: backslash every metacharacter so a literal can be embedded.
+(define (regex-escape s)
+  (let ((meta (string->list ".^$*+?()[]{}|\\-")))
+    (list->string
+     (fold-right (lambda (ch acc)
+                   (if (memv ch meta) (cons #\\ (cons ch acc)) (cons ch acc)))
+                 '() (string->list s)))))
