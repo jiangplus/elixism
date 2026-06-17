@@ -1,0 +1,38 @@
+module/elixir/parser.scm
+  s_8e9977ffd5237f::t_98dd6f3904d48c 446
+test/test-integration.scm
+  s_8e9977ffd5237f::t_03e10d01a047ed 646-663
+zig-rt/src/cabi.zig
+  s_8e9977ffd5237f::t_e6bf297bffdc62 1-94
+zig-rt/src/regex.zig
+  s_8e9977ffd5237f::t_44633263413d3d 1-102,104-465,467-470,472-660
+  s_8e9977ffd5237f::t_850117daee931e 103,466,471
+zig-rt/src/root.zig
+  s_8e9977ffd5237f::t_8faf0aa0fb86a5 7
+Makefile
+  s_8e9977ffd5237f::t_1cd931dcad1831 27,32-37
+module/elixir/eval.scm
+  s_8e9977ffd5237f::t_2a6a8f8df3c956 20
+  s_8e9977ffd5237f::t_96aa36d4b7471c 36
+module/elixir/regex.scm
+  s_8e9977ffd5237f::t_44cab39129ec89 1-22,33-34,44-214
+  s_8e9977ffd5237f::t_1a8a62091bc213 23-32,35-43
+zig-rt/build.zig
+  s_8e9977ffd5237f::t_60973851e5c093 31-51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "6c8c1f98b3147bb052fc998a466f50c13b7fab69",
+  "prompts": {},
+  "sessions": {
+    "s_8e9977ffd5237f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa7bf6bc-f474-4925-a494-a8ea455f13a6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
