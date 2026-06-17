@@ -1,0 +1,29 @@
+bench-graph/decimal.ex
+  s_8e9977ffd5237f::t_0ff344fbdbf4ca 1-3033
+bench-graph/.decimal-commit
+  s_8e9977ffd5237f::t_0ff344fbdbf4ca 1
+module/elixir/expand.scm
+  s_8e9977ffd5237f::t_611a25821e7e20 638
+  s_8e9977ffd5237f::t_c1ff3b7fc2ff7e 138-142
+  s_8e9977ffd5237f::t_3f647b44f5e204 620-635
+module/elixir/parser.scm
+  s_8e9977ffd5237f::t_179dde9621b1a6 361-363,365
+bench-graph/decimal_bench.ex
+  s_8e9977ffd5237f::t_0ff344fbdbf4ca 1-20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "34d5391686028b99a164d834372501b370a0954b",
+  "prompts": {},
+  "sessions": {
+    "s_8e9977ffd5237f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa7bf6bc-f474-4925-a494-a8ea455f13a6",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
