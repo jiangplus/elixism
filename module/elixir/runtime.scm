@@ -127,17 +127,123 @@
 ;;; Maps  (immutable, equal?-keyed; backed by an alist for the slice)
 ;;; ----------------------------------------------------------------------
 
-(define-record-type <emap>
-  (%make-emap alist)
-  emap?
-  (alist emap-alist))
+;;; A map is a *hybrid*: small maps keep an ordered association list (cheap, and
+;;; preserves insertion order for `inspect`); once a map grows past
+;;; HAMT-THRESHOLD it switches to a persistent hash-array-mapped trie so large
+;;; maps are O(log32 n) per op instead of O(n) — the alist made graph/struct
+;;; workloads O(n^2).  The trie nodes are plain Scheme vectors, so the Hoot
+;;; backend compiles them to engine-managed WasmGC objects (no linear-memory
+;;; runtime needed).  See zig-rt/ for the alternative native-Wasm experiment.
 
-(define (make-emap) (%make-emap '()))
-(define (alist->emap al)
-  ;; later pairs win, like Map.new/1
-  (%make-emap (fold-right (lambda (kv acc)
-                            (alist-set acc (car kv) (cdr kv)))
-                          '() al)))
+;; ---- term hashing (must agree with ex-equal?: 1 and 1.0 hash the same) ------
+(define HAMT-HBITS (ash 1 30))
+(define (ex-canon k)
+  ;; A representation where ex-equal? keys are `equal?` (so Guile `hash` agrees).
+  (cond
+   ((and (number? k) (inexact? k) (rational? k) (= k (round k)))
+    (inexact->exact (round k)))               ; 1.0 -> 1
+   ((tuple? k) (cons '%T (map ex-canon (tuple->list k))))
+   ((pair? k) (cons (ex-canon (car k)) (ex-canon (cdr k))))
+   (else k)))
+(define (ex-hash k) (hash (ex-canon k) HAMT-HBITS))
+
+;; ---- persistent CHAMP-ish HAMT over (ex-hash, ex-equal?) --------------------
+;; node  = #(bitmap slot …)   slot is a leaf pair (k . v) or a sub-node vector
+;; coll  = #('collision pair …)   keys that share a full 32-bit hash
+(define hamt-empty (vector 0))
+(define (collision-node? x) (and (vector? x) (eq? (vector-ref x 0) 'collision)))
+(define (node-slots n) (cdr (vector->list n)))
+(define (make-node bitmap slots) (list->vector (cons bitmap slots)))
+(define (make-collision pairs) (list->vector (cons 'collision pairs)))
+(define (coll-pairs n) (cdr (vector->list n)))
+
+(define (list-insert lst i x) (append (list-head lst i) (list x) (list-tail lst i)))
+(define (list-set lst i x) (append (list-head lst i) (list x) (list-tail lst (+ i 1))))
+(define (list-remove lst i) (append (list-head lst i) (list-tail lst (+ i 1))))
+(define (slot-index h shift) (logand (ash h (- shift)) 31))
+
+(define (hamt-get node k default)
+  (let go ((node node) (h (ex-hash k)) (shift 0))
+    (if (collision-node? node)
+        (let ((p (find (lambda (kv) (ex-equal? (car kv) k)) (coll-pairs node))))
+          (if p (cdr p) default))
+        (let* ((bm (vector-ref node 0))
+               (bit (ash 1 (slot-index h shift))))
+          (if (zero? (logand bm bit))
+              default
+              (let ((slot (vector-ref node (+ 1 (logcount (logand bm (- bit 1)))))))
+                (cond ((vector? slot) (go slot h (+ shift 5)))
+                      ((ex-equal? (car slot) k) (cdr slot))
+                      (else default))))))))
+
+(define (hamt-put node k v)            ; -> (values node added?)
+  (let go ((node node) (h (ex-hash k)) (shift 0))
+    (if (collision-node? node)
+        (let* ((ps (coll-pairs node))
+               (had (find (lambda (kv) (ex-equal? (car kv) k)) ps)))
+          (if had
+              (values (make-collision (map (lambda (kv) (if (ex-equal? (car kv) k) (cons k v) kv)) ps)) #f)
+              (values (make-collision (cons (cons k v) ps)) #t)))
+        (let* ((bm (vector-ref node 0))
+               (bit (ash 1 (slot-index h shift)))
+               (pos (logcount (logand bm (- bit 1))))
+               (slots (node-slots node)))
+          (if (zero? (logand bm bit))
+              (values (make-node (logior bm bit) (list-insert slots pos (cons k v))) #t)
+              (let ((slot (list-ref slots pos)))
+                (cond
+                 ((vector? slot)
+                  (call-with-values (lambda () (go slot h (+ shift 5)))
+                    (lambda (ns added) (values (make-node bm (list-set slots pos ns)) added))))
+                 ((ex-equal? (car slot) k)
+                  (values (make-node bm (list-set slots pos (cons k v))) #f))
+                 (else
+                  (values (make-node bm (list-set slots pos
+                                                  (hamt-merge slot (cons k v) h (+ shift 5)))) #t)))))))))
+
+(define (hamt-merge l1 l2 h2 shift)    ; split two leaves into a sub-node
+  (let ((h1 (ex-hash (car l1))))
+    (let go ((h1 h1) (h2 h2) (shift shift))
+      (if (>= shift 30)
+          (make-collision (list l1 l2))
+          (let ((i1 (slot-index h1 shift)) (i2 (slot-index h2 shift)))
+            (if (= i1 i2)
+                (make-node (ash 1 i1) (list (go h1 h2 (+ shift 5))))
+                (let ((b1 (ash 1 i1)) (b2 (ash 1 i2)))
+                  (if (< i1 i2)
+                      (make-node (logior b1 b2) (list l1 l2))
+                      (make-node (logior b1 b2) (list l2 l1))))))))))
+
+(define (hamt-del node k)              ; -> (values node removed?)
+  (let go ((node node) (h (ex-hash k)) (shift 0))
+    (if (collision-node? node)
+        (let ((ps (coll-pairs node)))
+          (if (find (lambda (kv) (ex-equal? (car kv) k)) ps)
+              (values (make-collision (filter (lambda (kv) (not (ex-equal? (car kv) k))) ps)) #t)
+              (values node #f)))
+        (let* ((bm (vector-ref node 0))
+               (bit (ash 1 (slot-index h shift)))
+               (pos (logcount (logand bm (- bit 1))))
+               (slots (node-slots node)))
+          (if (zero? (logand bm bit))
+              (values node #f)
+              (let ((slot (list-ref slots pos)))
+                (cond
+                 ((vector? slot)
+                  (call-with-values (lambda () (go slot h (+ shift 5)))
+                    (lambda (ns removed)
+                      (if removed (values (make-node bm (list-set slots pos ns)) #t)
+                          (values node #f)))))
+                 ((ex-equal? (car slot) k)
+                  (values (make-node (logxor bm bit) (list-remove slots pos)) #t))
+                 (else (values node #f)))))))))
+
+(define (hamt->alist node)
+  (if (collision-node? node) (coll-pairs node)
+      (append-map (lambda (slot) (if (vector? slot) (hamt->alist slot) (list slot)))
+                  (node-slots node))))
+
+;; ---- alist backing (small maps) --------------------------------------------
 (define (alist-set al k v)
   (cond ((null? al) (list (cons k v)))
         ((ex-equal? (caar al) k) (cons (cons k v) (cdr al)))
@@ -147,15 +253,61 @@
         ((ex-equal? (caar al) k) (cdar al))
         (else (alist-get (cdr al) k default))))
 
-(define (emap-put m k v) (%make-emap (alist-set (emap-alist m) k v)))
-(define (emap-cons m k v) (%make-emap (cons (cons k v) (emap-alist m))))
-(define (emap-ref m k default) (alist-get (emap-alist m) k default))
-(define (emap-has-key? m k)
-  (not (eq? 'absent (alist-get (emap-alist m) k 'absent))))
-(define (emap-delete m k)
-  (%make-emap (filter (lambda (kv) (not (ex-equal? (car kv) k)))
-                      (emap-alist m))))
+;; ---- the hybrid map: repr is an alist (small) or a HAMT node (vector) -------
+(define HAMT-THRESHOLD 32)
+(define-record-type <emap>
+  (%make-emap repr count)
+  emap?
+  (repr emap-repr)
+  (count emap-count))
+
+(define (make-emap) (%make-emap '() 0))
+(define (emap-hamt? m) (vector? (emap-repr m)))
+(define (emap-alist m)
+  (let ((r (emap-repr m))) (if (vector? r) (hamt->alist r) r)))
 (define (emap->alist m) (emap-alist m))
+(define (emap-size m) (emap-count m))
+(define (emap-keys m) (map car (emap-alist m)))
+(define (emap-values m) (map cdr (emap-alist m)))
+
+(define (mk-from-alist al)             ; promote to HAMT if it grew large
+  (let ((n (length al)))
+    (if (> n HAMT-THRESHOLD)
+        (%make-emap (fold (lambda (kv acc)
+                            (call-with-values (lambda () (hamt-put acc (car kv) (cdr kv)))
+                              (lambda (node _added) node)))
+                          hamt-empty al)
+                    n)
+        (%make-emap al n))))
+
+(define (alist->emap al)
+  ;; later pairs win, like Map.new/1
+  (mk-from-alist (fold-right (lambda (kv acc) (alist-set acc (car kv) (cdr kv))) '() al)))
+
+(define (emap-ref m k default)
+  (let ((r (emap-repr m))) (if (vector? r) (hamt-get r k default) (alist-get r k default))))
+(define (emap-has-key? m k) (not (eq? 'absent (emap-ref m k 'absent))))
+
+(define (emap-put m k v)
+  (let ((r (emap-repr m)) (cnt (emap-count m)))
+    (if (vector? r)
+        (call-with-values (lambda () (hamt-put r k v))
+          (lambda (node added) (%make-emap node (if added (+ cnt 1) cnt))))
+        (let ((had (not (eq? 'absent (alist-get r k 'absent)))))
+          (if had
+              (%make-emap (alist-set r k v) cnt)
+              (mk-from-alist (alist-set r k v)))))))
+
+(define (emap-cons m k v) (emap-put m k v))
+
+(define (emap-delete m k)
+  (let ((r (emap-repr m)) (cnt (emap-count m)))
+    (if (vector? r)
+        (call-with-values (lambda () (hamt-del r k))
+          (lambda (node removed) (%make-emap node (if removed (- cnt 1) cnt))))
+        (if (eq? 'absent (alist-get r k 'absent))
+            m
+            (%make-emap (filter (lambda (kv) (not (ex-equal? (car kv) k))) r) (- cnt 1))))))
 
 ;; Dot field access `map.key` -- fetches the key, raising on a missing key
 ;; (like Elixir's `.`, which is Map.fetch!/struct-field semantics).

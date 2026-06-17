@@ -618,6 +618,22 @@ M.g()")))
        (assert-equal 'new
         (ev "defmodule M do\nif function_exported?(Enum, :map, 2) do\ndef which, do: :new\nelse\ndef which, do: :old\nend\nend\nM.which()")))
 
+     ;; --- large maps promote to the HAMT backing (past the 32-key threshold) ---
+     (deftest "large map: build, get, size"
+       (assert-equal "{100, 298, true}"
+        (ev* "m = Enum.reduce(1..100, %{}, fn i, acc -> Map.put(acc, i, i * 2) end)
+{map_size(m), Map.get(m, 50) + Map.get(m, 99) + Map.get(m, 2500, 0), Map.has_key?(m, 100)}")))
+     (deftest "large map: delete + overwrite"
+       (assert-equal "{99, 999}"
+        (ev* "m = Enum.reduce(1..100, %{}, fn i, acc -> Map.put(acc, i, i) end)
+m = Map.delete(m, 1)
+m = Map.put(m, 50, 999)
+{map_size(m), Map.get(m, 50)}")))
+     (deftest "large map: string keys round-trip via to_list"
+       (assert-equal 40
+        (ev "m = Enum.reduce(1..40, %{}, fn i, acc -> Map.put(acc, \"k#{i}\", i) end)
+length(Map.to_list(m))")))
+
      ;; --- module attributes (@-attrs) ---
      (deftest "attribute read"
        (assert-equal 5000 (ev "defmodule M do
