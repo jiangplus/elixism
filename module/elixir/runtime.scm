@@ -101,17 +101,18 @@
 ;;; Tuples
 ;;; ----------------------------------------------------------------------
 
-(define-record-type <tuple>
-  (%make-tuple vec)
-  tuple?
-  (vec tuple-vec))
-
-(define (make-tuple . elements) (%make-tuple (list->vector elements)))
-(define (list->tuple lst) (%make-tuple (list->vector lst)))
-(define (tuple->list t) (vector->list (tuple-vec t)))
-(define (tuple-elements t) (vector->list (tuple-vec t)))
-(define (tuple-ref t i) (vector-ref (tuple-vec t) i))
-(define (tuple-size t) (vector-length (tuple-vec t)))
+;; A tuple IS a Scheme vector: one allocation and one indirection per
+;; access, instead of a record wrapping a vector (two of each).  This is
+;; unambiguous because nothing else in the *value model* is a bare vector:
+;; HAMT node vectors are internal to the <emap> record below, and the
+;; expander's mutable boxes never flow into Elixir values.
+(define (make-tuple . elements) (list->vector elements))
+(define (tuple? x) (vector? x))
+(define (list->tuple lst) (list->vector lst))
+(define (tuple->list t) (vector->list t))
+(define (tuple-elements t) (vector->list t))
+(define (tuple-ref t i) (vector-ref t i))
+(define (tuple-size t) (vector-length t))
 
 ;; Raw binary: a bytevector.  Elixir binaries are *byte* sequences; a UTF-8
 ;; string models the text case, a <bin> models bytes that need not be valid

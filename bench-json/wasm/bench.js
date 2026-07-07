@@ -25,7 +25,12 @@ const DATA = path.join(__dirname, "..", "..", "jason", "bench", "data");
 async function loadHandler() {
   const results = await Scheme.load_main(path.join(__dirname, "program.wasm"), {
     reflect_wasm_dir: __dirname,
-    user_imports: { host: { print: () => {}, sql: () => "[]" } },
+    user_imports: {
+      host: { print: () => {}, sql: () => "[]" },
+      // The bundle declares the Zig regex foreign unconditionally; JSON
+      // parsing never calls it, so a "no match" stub satisfies the import.
+      re: { exec: () => "" },
+    },
   });
   const vals = Array.isArray(results) ? results : [results];
   const h = vals.find((v) => v && typeof v.call === "function");

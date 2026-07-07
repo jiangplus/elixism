@@ -725,6 +725,21 @@ App.go")))
      (deftest "json string escaping"
        (assert-equal "\"a\\\"b\\n\"" (ev "Jason.encode!(\"a\\\"b\\n\")")))
 
+     ;; --- constant folding (elixir optimize) ---
+     (deftest "fold arithmetic to a literal"
+       (assert-equal 7 (elixir-compile "1 + 2 * 3")))
+     (deftest "fold string concat to a literal"
+       (assert-equal "ab" (elixir-compile "\"a\" <> \"b\"")))
+     (deftest "fold unary minus"
+       (assert-equal -5 (elixir-compile "-(2 + 3)")))
+     (deftest "fold / to float, never /0"
+       (assert-equal 3.5 (elixir-compile "7 / 2"))
+       ;; /0 must survive to runtime (an ArithmeticError there), not
+       ;; crash the compiler.
+       (assert-equal #t (pair? (elixir-compile "7 / 0"))))
+     (deftest "folded program still runs"
+       (assert-equal 11 (ev "1 + 2 * 3 - -4")))
+
      ;; --- errors ---
      (deftest "match error raises"
        (assert-raises (lambda () (ev "{:ok, x} = {:error, 1}"))))

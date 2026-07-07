@@ -56,10 +56,14 @@ else
 fi
 
 # Optional: Binaryen wasm-opt shrinks the module ~15-23% (faster cold start /
-# less bandwidth). Parse speed is unchanged — Elixism dispatch is dynamic.
+# less bandwidth).  The names section is another ~11%: stripped by default
+# (edge deploys are size-sensitive); ELIXISM_DEBUG=1 keeps it for readable
+# wasm stack traces.
 if command -v wasm-opt >/dev/null 2>&1; then
-  echo "==> Optimizing program.wasm with wasm-opt (-O3)"
-  wasm-opt -O3 --enable-gc --enable-reference-types --enable-exception-handling \
+  STRIP="--converge --strip-debug --strip-producers"
+  [ -n "$ELIXISM_DEBUG" ] && STRIP=""
+  echo "==> Optimizing program.wasm with wasm-opt (-O3 ${STRIP:-debug})"
+  wasm-opt -O3 $STRIP --enable-gc --enable-reference-types --enable-exception-handling \
     --enable-tail-call --enable-bulk-memory --enable-nontrapping-float-to-int \
     --enable-multivalue --enable-strings "$HERE/program.wasm" -o "$HERE/program.wasm.opt" \
     && mv "$HERE/program.wasm.opt" "$HERE/program.wasm"

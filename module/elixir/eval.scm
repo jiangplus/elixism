@@ -17,6 +17,7 @@
   #:use-module (elixir process)
   #:use-module (elixir kernel)
   #:use-module (elixir corelib)
+  #:use-module (elixir optimize)
   #:use-module (elixir regex)
   #:use-module (system base compile)
   #:export (elixir-compile elixir-eval elixir-run reset-elixir! elixir-env))
@@ -40,7 +41,7 @@
 (define (load-corelib!)
   (unless *corelib-thunk*
     (set! *corelib-thunk*
-          (compile `(lambda () ,(compile-program (expand-program (parse corelib-source))))
+          (compile `(lambda () ,(compile-program (fold-ast (expand-program (parse corelib-source)))))
                    #:from 'scheme #:to 'value #:env elixir-env)))
   (*corelib-thunk*))
 
@@ -49,7 +50,7 @@
 ;; Source -> Scheme s-expression.  Parse, run the macro-expansion phase
 ;; (quote/unquote), then compile.  Pure: no macro *invocation* (that needs the
 ;; host registry); this is the path the Wasm backend uses.
-(define (elixir-compile src) (compile-program (expand-program (parse src))))
+(define (elixir-compile src) (compile-program (fold-ast (expand-program (parse src)))))
 
 ;;; ----------------------------------------------------------------------
 ;;; Macro invocation (host).  Macros run at expand time, so before expanding a
@@ -413,7 +414,7 @@
     (install-macros! ast)
     (parameterize ((*macro-runner* host-macro-runner)
                    (*before-compile-runner* host-before-compile-runner))
-      (compile-program (expand-program ast)))))
+      (compile-program (fold-ast (expand-program ast))))))
 
 ;; Compile the emitted Scheme to a *thunk* of VM bytecode.  We compile
 ;; (rather than `eval`/interpret) so that delimited continuations captured

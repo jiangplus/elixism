@@ -11,7 +11,8 @@
 ;;; Tests.run/0 and prints the result through a host import.
 
 (use-modules (ice-9 textual-ports)
-             (elixir lexer) (elixir parser) (elixir compiler) (elixir corelib))
+             (elixir lexer) (elixir parser) (elixir compiler) (elixir corelib)
+             (elixir optimize))
 
 (define *args* (command-line))
 (define program-file (cadr *args*))
@@ -250,10 +251,21 @@
    (register-builtin! 'Regex 'scan 2 (lambda (re s) (re-do-scan re s)))
    (register-builtin! 'Regex 'source 1 (lambda (re) (call-with-values (lambda () (re-parts re)) (lambda (s _) s))))
    (register-builtin! 'String 'match? 2 (lambda (s re) (re-do-match? re s)))))
-(emit (compile-program (parse corelib-source)))
-
-;;; 5. The user program (defmodule Tests / Color), AOT-compiled.
-(emit (compile-program (parse (slurp program-file))))
+;;; 5. Core library + user program, AOT-compiled as ONE unit so cross-unit
+;;; calls devirtualize (shared fn-table -> direct calls), then the closed-world
+;;; pass rewrites the remaining registry dispatch (Scheme builtins: Enum/Map/
+;;; String/...) into once-resolved cached cells.  See (elixir optimize).
+;; ELIXISM_NO_DEVIRT=1 skips the pass (for A/B benchmarking).
+(let ((compiled (compile-program
+                 (fold-ast
+                  (parse (string-append corelib-source "\n" (slurp program-file)))))))
+  (if (getenv "ELIXISM_NO_DEVIRT")
+      (emit compiled)
+      (call-with-values (lambda () (devirtualize-program compiled))
+        (lambda (program prelude postlude)
+          (emit-all prelude)      ; (define %dvN #f) cells
+          (emit program)
+          (emit-all postlude))))) ; %devirt-freeze! : resolve every cell, once
 
 ;;; 6. Main / tail.
 (if (string=? main-mode "handler")

@@ -31,8 +31,10 @@ fi
 # in the browser and on Cloudflare Workers. Parse speed is unchanged (Elixism's
 # dispatch is dynamic, so there are no static call sites for wasm-opt to inline).
 if command -v wasm-opt >/dev/null 2>&1; then
-  echo "==> Optimizing program.wasm with wasm-opt (-O3)"
-  wasm-opt -O3 --enable-gc --enable-reference-types --enable-exception-handling \
+  STRIP="--converge --strip-debug --strip-producers"
+  [ -n "$ELIXISM_DEBUG" ] && STRIP=""
+  echo "==> Optimizing program.wasm with wasm-opt (-O3 ${STRIP:-debug})"
+  wasm-opt -O3 $STRIP --enable-gc --enable-reference-types --enable-exception-handling \
     --enable-tail-call --enable-bulk-memory --enable-nontrapping-float-to-int \
     --enable-multivalue --enable-strings "$HERE/program.wasm" -o "$HERE/program.wasm.opt" \
     && mv "$HERE/program.wasm.opt" "$HERE/program.wasm" \
