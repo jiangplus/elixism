@@ -1,0 +1,43 @@
+wasm-node/build.sh
+  s_8e9977ffd5237f::t_e22d332f295c47 59-61,63-66
+test/test-integration.scm
+  s_8e9977ffd5237f::t_7b0784875c0b1d 728-742
+design/direction.md
+  s_8e9977ffd5237f::t_a854233c81e514 1-39,41,70-159
+  s_8e9977ffd5237f::t_2a24a9287e281d 40,42-69
+module/elixir/optimize.scm
+  s_8e9977ffd5237f::t_e12cd3c923ef15 1-31,87-148
+  s_8e9977ffd5237f::t_bd24ef9ee4f881 32-86
+bench-json/wasm/bench.js
+  s_8e9977ffd5237f::t_4b91fddeaf2fcb 28-33
+wasm-node/bundle.scm
+  s_8e9977ffd5237f::t_326601c84e4c67 14-15
+  s_8e9977ffd5237f::t_49dc754e29d00d 260-261
+  s_8e9977ffd5237f::t_f1cb12c3c3daf9 254-257
+  s_8e9977ffd5237f::t_d32c20037b3f08 258-259,262-268
+module/elixir/eval.scm
+  s_8e9977ffd5237f::t_ad39d1905ad6f3 417
+  s_8e9977ffd5237f::t_2a0540633142b7 20
+  s_8e9977ffd5237f::t_d720660a90d00e 44
+  s_8e9977ffd5237f::t_ac69534eb72e92 53
+bench-json/wasm/build.sh
+  s_8e9977ffd5237f::t_61f430bc46db4b 34-37
+module/elixir/runtime.scm
+  s_8e9977ffd5237f::t_04d545f6211561 104-115
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "319a676ea0a2af3a6227a85eaaec630e3c12e7b4",
+  "prompts": {},
+  "sessions": {
+    "s_8e9977ffd5237f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa7bf6bc-f474-4925-a494-a8ea455f13a6",
+        "model": "claude-fable-5"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
