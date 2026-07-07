@@ -1,0 +1,58 @@
+frontend/tokenizer.ex
+  s_8e9977ffd5237f::t_87a4484376f8d4 134
+  s_8e9977ffd5237f::t_2834a005294fe6 85-86,89-91
+  s_8e9977ffd5237f::t_f78b2b8451c640 471-491
+  s_8e9977ffd5237f::t_1f679662869dcb 149-150
+module/elixir/eval.scm
+  s_8e9977ffd5237f::t_9030cd522e7295 365-369,372
+  s_8e9977ffd5237f::t_1ca2bfd14de537 52-94,98
+  s_8e9977ffd5237f::t_ee63b1c8ddb3fb 309-310
+  s_8e9977ffd5237f::t_b0ec04d2412900 542
+  s_8e9977ffd5237f::t_d3eba596b87c63 391
+  s_8e9977ffd5237f::t_895de6c2ed2e3c 224-225
+  s_8e9977ffd5237f::t_2aabc5e193f622 24-25
+  s_8e9977ffd5237f::t_4bcd5d1f6dd438 370-371,373-379
+  s_8e9977ffd5237f::t_c2de7ea2163836 259-275
+  s_8e9977ffd5237f::t_bbb4f14c31c540 470-474
+  s_8e9977ffd5237f::t_f84c88785316a1 460-462
+  s_8e9977ffd5237f::t_0973b204d9e75c 382-386
+  s_8e9977ffd5237f::t_2bf35b9d86b4e1 485-487,489-493
+  s_8e9977ffd5237f::t_ccd77f71132228 11
+  s_8e9977ffd5237f::t_5a5ad1ac357fb8 463-466,469
+  s_8e9977ffd5237f::t_c35f8d02ed1ab4 447-454
+  s_8e9977ffd5237f::t_11a5c6520c25c1 349-361
+  s_8e9977ffd5237f::t_caccd75a9eb46d 242-245,249-252,256-257
+  s_8e9977ffd5237f::t_65ade53198604f 258
+frontend/parser.ex
+  s_8e9977ffd5237f::t_4f0220d07e3344 615-634
+  s_8e9977ffd5237f::t_94b086bcfe5d56 253-257
+  s_8e9977ffd5237f::t_74c74fe2c8b6a4 178-181
+  s_8e9977ffd5237f::t_c2d811b3f49e2e 159
+  s_8e9977ffd5237f::t_c00ce59d79942b 125
+  s_8e9977ffd5237f::t_fa844902e5b275 136-137,139
+  s_8e9977ffd5237f::t_5e7b3dd97ae692 138
+  s_8e9977ffd5237f::t_4aa6ab0cf66de6 191
+  s_8e9977ffd5237f::t_3a6854591b691d 152-158,160-161
+  s_8e9977ffd5237f::t_e9fd3f48287e6f 324-326,329,332-339
+  s_8e9977ffd5237f::t_1999c342dec871 423
+  s_8e9977ffd5237f::t_38f436ed44fa45 207-217
+  s_8e9977ffd5237f::t_61453aebfe7197 440-450
+  s_8e9977ffd5237f::t_e90588e6e135a7 145-151
+  s_8e9977ffd5237f::t_21dadfd2cb6e40 340
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "dfb210053aec1ffc4467c75178aa21993766d6eb",
+  "prompts": {},
+  "sessions": {
+    "s_8e9977ffd5237f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fa7bf6bc-f474-4925-a494-a8ea455f13a6",
+        "model": "claude-fable-5"
+      },
+      "human_author": "jiangplus <jiang.plus.times@gmail.com>"
+    }
+  }
+}
