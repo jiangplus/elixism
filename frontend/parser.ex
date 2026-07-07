@@ -122,6 +122,7 @@ defmodule Parser do
   defp prec(:and_op), do: {130, :left}
   defp prec(:or_op), do: {120, :left}
   defp prec(:match_op), do: {100, :right}
+  defp prec(:default_op), do: {95, :left}
   defp prec(:in_match_op), do: {40, :left}
   # NB: assoc_op (=>) is deliberately absent — it is only meaningful inside maps
   # and keyword syntax, handled in parse_map, never as a free binary operator.
@@ -132,12 +133,32 @@ defmodule Parser do
 
   # ---- prefix (null-denotation): primaries and prefix operators -------------
   defp prefix([{:int, cs} | r]), do: {to_int(cs), r}
-  defp prefix([{:atom, a} | r]), do: {a, r}
+  # atoms take postfix so `:mod.fun(args)` erlang-module calls chain.
+  defp prefix([{:atom, a} | r]), do: postfix(a, r)
+  # :"!="  :"with space"  — quoted atom, payload is the codepoint list.
+  defp prefix([{:atom_quoted, cs} | r]), do: postfix(List.to_atom(cs), r)
   defp prefix([{true, _} | r]), do: {true, r}
   defp prefix([{false, _} | r]), do: {false, r}
   defp prefix([{nil, _} | r]), do: {nil, r}
   defp prefix([{:bin_string, parts} | r]), do: {string_value(parts), r}
   defp prefix([{:bin_heredoc, parts} | r]), do: {string_value(parts), r}
+  # ?a / ?\n — a char literal quotes to its integer codepoint.
+  defp prefix([{:char, c} | r]), do: {c, r}
+  # 'abc' — a literal charlist quotes to the list of codepoints.
+  # (Interpolated charlists are out of scope for the self-host gate.)
+  defp prefix([{:list_string, [s]} | r]) when is_binary(s),
+    do: {String.to_charlist(s), r}
+  defp prefix([{:list_string, []} | r]), do: {[], r}
+  # sigils, lowered exactly as the stage0 parser does (parser.scm parse-sigil):
+  # ~c charlist, ~s/~S string, ~w/~W word list (mods: a atoms, c charlists),
+  # ~r a minimal {Regex, source, mods} value.
+  defp prefix([{:sigil, :sigil_c, content, _m} | r]), do: {content, r}
+  defp prefix([{:sigil, :sigil_s, content, _m} | r]), do: {List.to_string(content), r}
+  defp prefix([{:sigil, :sigil_S, content, _m} | r]), do: {List.to_string(content), r}
+  defp prefix([{:sigil, :sigil_r, content, mods} | r]),
+    do: {{:"{}", [], [:Regex, List.to_string(content), List.to_string(mods)]}, r}
+  defp prefix([{:sigil, :sigil_w, content, mods} | r]), do: {sigil_words(content, mods), r}
+  defp prefix([{:sigil, :sigil_W, content, mods} | r]), do: {sigil_words(content, mods), r}
 
   # prefix operators.  `@` binds tighter than access (320 > 310) so `@a[i]` is
   # `(@a)[i]`; the others are looser (300 < 310) so `-a[i]` is `-(a[i])`.
@@ -154,7 +175,10 @@ defmodule Parser do
   # list / tuple / map literals
   defp prefix([{:"[", _} | r]), do: parse_list(r)
   defp prefix([{:"{", _} | r]), do: parse_tuple(r)
-  defp prefix([{:"%{}", _}, {:"{", _} | r]), do: parse_map(r)
+  defp prefix([{:"%{}", _}, {:"{", _} | r]) do
+    {m, r2} = parse_map(r)
+    postfix(m, r2)
+  end
 
   # binary / bitstring literals  <<1, 2>>  /  <<x::8, rest::binary>>
   defp prefix([{:"<<", _} | r]), do: parse_bin(drop_eol(r), [])
@@ -164,7 +188,7 @@ defmodule Parser do
     {name, r2} = expr(r, 320)
     [{:"{", _} | r3] = drop_eol(r2)
     {mapnode, r4} = parse_map(r3)
-    {{:"%", [], [name, mapnode]}, r4}
+    postfix({:"%", [], [name, mapnode]}, r4)
   end
 
   # &-captures.  `&N` is a capture *argument* — `&` binds only the integer (so
@@ -180,7 +204,17 @@ defmodule Parser do
   # paren call:  f(args)
   defp prefix([{:paren_identifier, f}, {:"(", _} | r]) do
     {args, r2} = parse_args(r)
-    postfix({f, [], args}, r2)
+
+    case r2 do
+      # call-of-call, e.g. the `def unquote(name)()` dynamic head:
+      # {{:unquote, [], [name]}, [], args2}
+      [{:"(", _} | r3] ->
+        {args2, r4} = parse_args(r3)
+        postfix({{f, [], args}, [], args2}, r4)
+
+      _ ->
+        postfix({f, [], args}, r2)
+    end
   end
 
   # aliases:  Foo  /  Foo.Bar
@@ -216,6 +250,11 @@ defmodule Parser do
 
   defp dot(left, tokens) do
     case drop_eol(tokens) do
+      # f.(args) — anonymous-function call
+      [{:"(", _} | r] ->
+        {args, r2} = parse_args(r)
+        postfix({{:., [], [left]}, [], args}, r2)
+
       [{:paren_identifier, f}, {:"(", _} | r] ->
         {args, r2} = parse_args(r)
         postfix({{:., [], [left, f]}, [], args}, r2)
@@ -282,11 +321,22 @@ defmodule Parser do
     end
   end
 
-  # parse a do-block body: a clause list (if it has top-level `->`) or a block
+  # parse a do-block body: a clause list (if it has top-level `->`) or a block.
+  # Top-level section keywords (else/rescue/catch/after) split the body into a
+  # keyword list, e.g. `if c do a else b end` -> [do: a, else: b].
   defp do_body(tokens) do
     {inner, rest} = take_block(skip_sep(tokens), 0, [])
-    {[{:do, block_body(inner)}], rest}
+    {sect(inner, 0, :do, [], []), rest}
   end
+
+  defp sect([], _d, key, cur, acc),
+    do: Enum.reverse([{key, block_body(Enum.reverse(cur))} | acc])
+  defp sect([{k, _} | t], 0, key, cur, acc) when k in [:else, :rescue, :catch, :after],
+    do: sect(t, 0, k, [], [{key, block_body(Enum.reverse(cur))} | acc])
+  defp sect([{:do, v} | t], d, key, cur, acc), do: sect(t, d + 1, key, [{:do, v} | cur], acc)
+  defp sect([{:fn, v} | t], d, key, cur, acc), do: sect(t, d + 1, key, [{:fn, v} | cur], acc)
+  defp sect([{:end, v} | t], d, key, cur, acc), do: sect(t, d - 1, key, [{:end, v} | cur], acc)
+  defp sect([tok | t], d, key, cur, acc), do: sect(t, d, key, [tok | cur], acc)
 
   defp block_body(inner) do
     if has_stab?(inner, 0), do: clauses(inner), else: parse(inner)
@@ -370,7 +420,7 @@ defmodule Parser do
   end
 
   # ---- command-arg recognition ----------------------------------------------
-  defp starts_arg?([{k, _} | _]), do: arg_starter?(k)
+  defp starts_arg?([t | _]) when is_tuple(t), do: arg_starter?(elem(t, 0))
   defp starts_arg?(_), do: false
 
   defp arg_starter?(:int), do: true
@@ -387,6 +437,17 @@ defmodule Parser do
   defp arg_starter?(:paren_identifier), do: true
   defp arg_starter?(:alias), do: true
   defp arg_starter?(:kw_identifier), do: true
+  defp arg_starter?(:atom_quoted), do: true
+  defp arg_starter?(:"%"), do: true
+  defp arg_starter?(:"%{}"), do: true
+  defp arg_starter?(:"{"), do: true
+  defp arg_starter?(:"["), do: true
+  defp arg_starter?(:"<<"), do: true
+  defp arg_starter?(:fn), do: true
+  defp arg_starter?(:capture_op), do: true
+  defp arg_starter?(true), do: true
+  defp arg_starter?(false), do: true
+  defp arg_starter?(nil), do: true
   defp arg_starter?(:capture_op), do: true
   defp arg_starter?(:at_op), do: true
   # `[`/`{`/`%{}` as command args — `defstruct [...]`, `foo %{}`. The `a [b]` vs
@@ -550,6 +611,26 @@ defmodule Parser do
 
   defp drop_eol([{:eol, _} | t]), do: drop_eol(t)
   defp drop_eol(t), do: t
+
+  # ~w word list: split content on whitespace; mods pick the element type.
+  defp sigil_words(content, mods) do
+    words = split_ws(content, [], [])
+    cond do
+      ?a in mods -> Enum.map(words, fn w -> List.to_atom(w) end)
+      ?c in mods -> words
+      true -> Enum.map(words, fn w -> List.to_string(w) end)
+    end
+  end
+
+  defp split_ws([], [], acc), do: Enum.reverse(acc)
+  defp split_ws([], cur, acc), do: Enum.reverse([Enum.reverse(cur) | acc])
+  defp split_ws([c | t], cur, acc) when c == ?\s or c == ?\t or c == ?\n or c == ?\r do
+    case cur do
+      [] -> split_ws(t, [], acc)
+      _ -> split_ws(t, [], [Enum.reverse(cur) | acc])
+    end
+  end
+  defp split_ws([c | t], cur, acc), do: split_ws(t, [c | cur], acc)
 
   # integer value from its char run (underscores dropped), any base
   defp to_int([?0, ?x | r]), do: digits_to_int(strip_us(r), 16, 0)

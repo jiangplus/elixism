@@ -82,12 +82,13 @@ defmodule Tokenizer do
     scan(rest, [{:list_string, parts} | acc])
   end
 
-  # sigils  ~w[...]  ~r/.../i  -> a `sigil` token carrying the :sigil_<name> atom
-  # (the BEAM canonical form is just the name; content/modifiers are skipped).
+  # sigils  ~w[...]  ~r/.../i  -> a `sigil` token: {:sigil, :sigil_<name>,
+  # content-charlist, modifier-charlist}.
   defp scan([?~, c | t], acc) when (c >= ?a and c <= ?z) or (c >= ?A and c <= ?Z) do
     {name, after_name} = ident_run([c | t], [])
-    rest = sigil_mods(sigil_body(after_name))
-    scan(rest, [{:sigil, List.to_atom([?s, ?i, ?g, ?i, ?l, ?_ | name])} | acc])
+    {content, after_body} = sigil_body(after_name)
+    {mods, rest} = sigil_mods(after_body, [])
+    scan(rest, [{:sigil, List.to_atom([?s, ?i, ?g, ?i, ?l, ?_ | name]), content, mods} | acc])
   end
 
   # char literals  ?x  ?\n  ?(  — value is the codepoint.  Escapes first, then
@@ -130,7 +131,7 @@ defmodule Tokenizer do
   defp scan([?+, ?+ | t], acc), do: scan(t, bop({:concat_op, :++}, acc))
   defp scan([?-, ?- | t], acc), do: scan(t, bop({:concat_op, :--}, acc))
   defp scan([?:, ?: | t], acc), do: scan(t, bop({:type_op, :"::"}, acc))
-  defp scan([?=, ?> | t], acc), do: scan(t, bop({:assoc_op, :=>}, acc))
+  defp scan([?=, ?> | t], acc), do: scan(t, bop({:assoc_op, :"=>"}, acc))
   defp scan([?&, ?& | t], acc), do: scan(t, bop({:and_op, :&&}, acc))
   defp scan([?|, ?| | t], acc), do: scan(t, bop({:or_op, :||}, acc))
   defp scan([?-, ?> | t], acc), do: scan(t, bop({:stab_op, :->}, acc))
@@ -145,6 +146,8 @@ defmodule Tokenizer do
   # %{...} opens with a %{} marker then a '{' brace; %Struct{} is just '%'
   defp scan([?%, ?{ | t], acc), do: scan([?{ | t], [{:"%{}", nil} | acc])
   defp scan([?% | t], acc), do: scan(t, [{:"%", nil} | acc])
+  # \\ — default-argument marker (elixir_parser.yrl kind: default_op)
+  defp scan([?\\, ?\\ | t], acc), do: scan(t, bop({:default_op, :"\\\\"}, acc))
   defp scan([?., ?., ?. | t], acc), do: scan(t, [{:ellipsis_op, :...} | acc])
   defp scan([?., ?. | t], acc), do: scan(t, bop({:range_op, :..}, acc))
   defp scan([?| | t], acc), do: scan(t, bop({:pipe_op, :|}, acc))
@@ -465,25 +468,27 @@ defmodule Tokenizer do
   # Skip a sigil's body, returning the chars after the closing delimiter.  Paired
   # delimiters ( [ { < nest; the others ( / | " ' ) close on themselves.  We only
   # need to find the end (the canonical token is just the sigil name).
-  defp sigil_body([?( | t]), do: sigil_paired(t, ?(, ?), 0)
-  defp sigil_body([?[ | t]), do: sigil_paired(t, ?[, ?], 0)
-  defp sigil_body([?{ | t]), do: sigil_paired(t, ?{, ?}, 0)
-  defp sigil_body([?< | t]), do: sigil_paired(t, ?<, ?>, 0)
-  defp sigil_body([d | t]), do: sigil_same(t, d)
+  # body -> {content-charlist, rest}
+  defp sigil_body([?( | t]), do: sigil_paired(t, ?(, ?), 0, [])
+  defp sigil_body([?[ | t]), do: sigil_paired(t, ?[, ?], 0, [])
+  defp sigil_body([?{ | t]), do: sigil_paired(t, ?{, ?}, 0, [])
+  defp sigil_body([?< | t]), do: sigil_paired(t, ?<, ?>, 0, [])
+  defp sigil_body([d | t]), do: sigil_same(t, d, [])
 
-  defp sigil_same([?\\, _ | t], d), do: sigil_same(t, d)
-  defp sigil_same([c | t], d) when c == d, do: t
-  defp sigil_same([_ | t], d), do: sigil_same(t, d)
+  defp sigil_same([?\\, c | t], d, acc), do: sigil_same(t, d, [c, ?\\ | acc])
+  defp sigil_same([c | t], d, acc) when c == d, do: {Enum.reverse(acc), t}
+  defp sigil_same([c | t], d, acc), do: sigil_same(t, d, [c | acc])
 
-  defp sigil_paired([?\\, _ | t], o, c, d), do: sigil_paired(t, o, c, d)
-  defp sigil_paired([x | t], _o, c, 0) when x == c, do: t
-  defp sigil_paired([x | t], o, c, d) when x == c, do: sigil_paired(t, o, c, d - 1)
-  defp sigil_paired([x | t], o, c, d) when x == o, do: sigil_paired(t, o, c, d + 1)
-  defp sigil_paired([_ | t], o, c, d), do: sigil_paired(t, o, c, d)
+  defp sigil_paired([?\\, c | t], o, cl, d, acc), do: sigil_paired(t, o, cl, d, [c, ?\\ | acc])
+  defp sigil_paired([x | t], _o, cl, 0, acc) when x == cl, do: {Enum.reverse(acc), t}
+  defp sigil_paired([x | t], o, cl, d, acc) when x == cl, do: sigil_paired(t, o, cl, d - 1, [x | acc])
+  defp sigil_paired([x | t], o, cl, d, acc) when x == o, do: sigil_paired(t, o, cl, d + 1, [x | acc])
+  defp sigil_paired([x | t], o, cl, d, acc), do: sigil_paired(t, o, cl, d, [x | acc])
 
-  # trailing modifier letters (e.g. the `i` in ~r/.../i)
-  defp sigil_mods([c | t]) when (c >= ?a and c <= ?z) or (c >= ?A and c <= ?Z), do: sigil_mods(t)
-  defp sigil_mods(rest), do: rest
+  # trailing modifier letters (e.g. the `i` in ~r/.../i) -> {mods, rest}
+  defp sigil_mods([c | t], acc) when (c >= ?a and c <= ?z) or (c >= ?A and c <= ?Z),
+    do: sigil_mods(t, [c | acc])
+  defp sigil_mods(rest, acc), do: {Enum.reverse(acc), rest}
 
   # collect the chars of a #{...} expression up to the matching '}' (tracks {})
   defp take_interp([?} | t], 0, acc), do: {Enum.reverse(acc), t}

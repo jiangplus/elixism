@@ -8,6 +8,7 @@
 (define-module (elixir eval)
   #:use-module (srfi srfi-1)
   #:use-module (ice-9 match)
+  #:use-module (ice-9 textual-ports)
   #:use-module (elixir lexer)
   #:use-module (elixir parser)
   #:use-module (elixir expand)
@@ -20,7 +21,8 @@
   #:use-module (elixir optimize)
   #:use-module (elixir regex)
   #:use-module (system base compile)
-  #:export (elixir-compile elixir-eval elixir-run reset-elixir! elixir-env))
+  #:export (elixir-compile elixir-eval elixir-run reset-elixir! elixir-env
+            load-frontend! selfhost-parse))
 
 ;; The current module *of this file* sees every binding the compiled code
 ;; needs (runtime + dispatch + process), so we eval against it.
@@ -47,10 +49,53 @@
 
 (define (ensure-installed!) (unless *installed* (reset-elixir!)))
 
+;;; ----------------------------------------------------------------------
+;;; Self-host frontend.  The Elixir-written tokenizer/parser (frontend/*.ex)
+;;; can replace the stage0 Scheme parser: source -> Tokenizer.tokenize ->
+;;; Parser.parse (quoted {name, meta, args} terms) -> term->ast (the same
+;;; bridge macros use) -> the existing expand/compile.  Compiled ONCE to a
+;;; thunk (like corelib); the thunk only re-registers on later calls, so a
+;;; reset costs microseconds, not a recompile.
+;;; Select with ELIXISM_FRONTEND=selfhost.
+;;; ----------------------------------------------------------------------
+
+(define *frontend-thunk* #f)
+
+(define frontend-dir      ; <root>/frontend/, resolved via the load path
+  (let ((f (search-path %load-path "elixir/eval.scm")))
+    (and f (string-append (dirname (dirname (dirname f))) "/frontend/"))))
+
+(define (slurp-file p) (call-with-input-file p get-string-all))
+
+(define (load-frontend!)
+  (ensure-installed!)
+  (unless *frontend-thunk*
+    (let ((src (string-append
+                (slurp-file (string-append frontend-dir "tokenizer.ex")) "\n"
+                (slurp-file (string-append frontend-dir "parser.ex")))))
+      (set! *frontend-thunk*
+            (compile `(lambda () ,(compile-program (fold-ast (expand-program (parse src)))))
+                     #:from 'scheme #:to 'value #:env elixir-env))))
+  ;; (re-)register Tokenizer/Parser into the current (possibly reset) registry.
+  (*frontend-thunk*))
+
+;; Parse with the self-hosted frontend; returns the same s-expr AST as `parse`.
+(define (selfhost-parse src)
+  (load-frontend!)
+  (term->ast
+   (ex-call-remote 'Parser 'parse
+                   (list (ex-call-remote 'Tokenizer 'tokenize
+                                         (list (string->charlist src)))))))
+
+(define (front-parse src)
+  (if (equal? (getenv "ELIXISM_FRONTEND") "selfhost")
+      (selfhost-parse src)
+      (parse src)))
+
 ;; Source -> Scheme s-expression.  Parse, run the macro-expansion phase
 ;; (quote/unquote), then compile.  Pure: no macro *invocation* (that needs the
 ;; host registry); this is the path the Wasm backend uses.
-(define (elixir-compile src) (compile-program (fold-ast (expand-program (parse src)))))
+(define (elixir-compile src) (compile-program (fold-ast (expand-program (front-parse src)))))
 
 ;;; ----------------------------------------------------------------------
 ;;; Macro invocation (host).  Macros run at expand time, so before expanding a
@@ -176,7 +221,8 @@
     (mk3 kind (list head (list (make-tuple 'do (ast->term body)))))))
 
 (define *binops* '("+" "-" "*" "/" "<" ">" "<=" ">=" "==" "!=" "===" "!==" "=~"
-                   "++" "--" "<>" ".." "in" "&&" "||" "|>" "**" "|"))
+                   "++" "--" "<>" ".." "in" "&&" "||" "|>" "**" "|" "\\\\"
+                   "<<<" ">>>" "&&&" "|||" "^^^" "::"))
 (define *unops* '("-" "+" "!" "not" "^" "@"))
 
 ;; the runtime quoted term a macro returns -> s-expr AST the compiler compiles.
@@ -193,12 +239,39 @@
     ((tuple? t) (tuple-term->ast t))
     (else (error "macro: cannot use result term" t))))
 
-;; A possibly-improper list term -> (list elts tail).
+;; A possibly-improper list term -> (list elts tail).  Elixir's quoted form
+;; renders [h | t] as a PROPER list whose last element is {:|, meta, [h, t]}
+;; (that is what the self-host frontend and quote produce); map that back to
+;; the parser's (list elts tail) cons node.
 (define (improper->ast t)
   (let loop ((t t) (acc '()))
     (cond ((null? t) `(list ,(reverse acc) #f))
+          ((and (pair? t) (null? (cdr t)) (cons-term? (car t)))
+           (let ((ht (tuple-ref (car t) 2)))
+             `(list ,(reverse (cons (term->ast (car ht)) acc))
+                    ,(term->ast (cadr ht)))))
           ((pair? t) (loop (cdr t) (cons (term->ast (car t)) acc)))
           (else `(list ,(reverse acc) ,(term->ast t))))))
+
+(define (cons-term? x)
+  (and (tuple? x) (= (tuple-size x) 3) (eq? (tuple-ref x 0) sym\|)))
+
+;; A term-level keyword list: nonempty proper list of {atom, v} 2-tuples.
+;; As the LAST argument of a call-like form it becomes the parser's (kwlist …)
+;; node — the shape special forms (def do:, defstruct, use, …) match on.
+;; Elsewhere (data positions) it stays a plain list, exactly like stage0.
+(define (kw-term? t)
+  (and (pair? t) (list? t)
+       (every (lambda (e) (and (tuple? e) (= (tuple-size e) 2)
+                               (symbol? (tuple-ref e 0))))
+              t)))
+(define (kw-term->kwlist t)
+  `(kwlist ,(map (lambda (e) (cons (tuple-ref e 0) (term->ast (tuple-ref e 1)))) t)))
+(define (call-args->ast args)
+  (if (and (pair? args) (kw-term? (last args)))
+      (append (map term->ast (drop-right args 1))
+              (list (kw-term->kwlist (last args))))
+      (map term->ast args)))
 
 ;; keyword lookup in a term-level keyword list (list of {key, val} 2-tuples).
 (define (term-kw-ref kw key default)
@@ -233,8 +306,8 @@
           ((and (tuple? name) (= (tuple-size name) 3) (eq? (tuple-ref name 0) sym.))
            (let ((mf (tuple-ref name 2)))
              (if (= (length mf) 2)
-                 `(remote ,(term->ast (car mf)) ,(cadr mf) ,(map term->ast args))
-                 `(dotcall ,(term->ast (car mf)) ,(map term->ast args)))))
+                 `(remote ,(term->ast (car mf)) ,(cadr mf) ,(call-args->ast args))
+                 `(dotcall ,(term->ast (car mf)) ,(call-args->ast args)))))
           ((eq? name '__aliases__) `(alias ,args))
           ((eq? name sym{}) `(tuple ,(map term->ast args)))
           ((eq? name '__block__) `(block ,(map term->ast args)))
@@ -273,16 +346,49 @@
           ((eq? name 'with) (with-term->ast args))
           ((eq? name 'try) (try-term->ast (car args)))
           ((memq name '(def defp defmacro defmacrop)) (term-def->ast name args))
+          ;; quote [opts] do body end -> the parser's (quoted body-ast opts) node
+          ((eq? name 'quote)
+           (let* ((kw   (last args))
+                  (opts (if (= (length args) 2) (car args) '()))
+                  (body (term-kw-ref kw 'do 'nil)))
+             `(quoted ,(term->ast body)
+                      ,(map (lambda (e) (cons (tuple-ref e 0) (term->ast (tuple-ref e 1))))
+                            opts))))
+          ;; unless lowers at parse time in stage0; mirror it here.
+          ((and (eq? name 'unless) (= (length args) 2))
+           `(if (unop "not" ,(term->ast (car args)))
+                ,(term->ast (term-kw-ref (cadr args) 'do 'nil))
+                ,(term->ast (term-kw-ref (cadr args) 'else 'nil))))
           ((eq? name 'defmodule)
            `(defmodule ,(term->ast (car args))
               ,(term->ast (term-kw-ref (cadr args) 'do 'nil))))
+          ;; defprotocol P do defs end -> (defprotocol (alias …) def…)
+          ((eq? name 'defprotocol)
+           `(defprotocol ,(term->ast (car args))
+              ,@(body-defs->ast (term-kw-ref (cadr args) 'do 'nil))))
+          ;; defimpl P, for: T do defs end -> (defimpl (alias P) (alias T) def…)
+          ;; `for:` and `do:` may arrive merged in one keyword tail or split
+          ;; across two args; search all keyword args for each key.
+          ((eq? name 'defimpl)
+           (let* ((kws (filter kw-term? (cdr args)))
+                  (find (lambda (k) (let loop ((ks kws))
+                                      (if (null? ks) 'nil
+                                          (let ((v (term-kw-ref (car ks) k 'no-key)))
+                                            (if (eq? v 'no-key) (loop (cdr ks)) v)))))))
+             `(defimpl ,(term->ast (car args)) ,(term->ast (find 'for))
+                ,@(body-defs->ast (find 'do)))))
           ;; a variable: third element is the context atom, not an arg list
           ((not (list? args)) `(var ,name))
+          ;; word operators lower exactly as the stage0 parser does
+          ;; (parser.scm word-binop): and -> && , or -> ||.
+          ((and (memq name '(and or)) (= (length args) 2))
+           `(binop ,(if (eq? name 'and) "&&" "||")
+                   ,(term->ast (car args)) ,(term->ast (cadr args))))
           ((and (= (length args) 2) (member (symbol->string name) *binops*))
            `(binop ,(symbol->string name) ,(term->ast (car args)) ,(term->ast (cadr args))))
           ((and (= (length args) 1) (member (symbol->string name) *unops*))
            `(unop ,(symbol->string name) ,(term->ast (car args))))
-          (else `(call ,name ,(map term->ast args))))))
+          (else `(call ,name ,(call-args->ast args))))))
       (else (error "macro: result tuple of unexpected arity" n)))))
 
 ;; {:%{}, _, pairs}  pairs is [{k,v}…] or [{:|, _, [base, [{k,v}…]]}]
@@ -338,16 +444,34 @@
         ,(let ((x (term-kw-ref kw 'else 'no-key)))   (if (eq? x 'no-key) '() (term-clauses->ast x)))
         ,(let ((x (term-kw-ref kw 'after 'no-key)))  (and (not (eq? x 'no-key)) (term->ast x)))))
 
+;; A module/protocol body term -> the list of top-level def AST forms.
+(define (body-defs->ast body-term)
+  (if (eq? body-term 'nil) '()
+      (let ((ast (term->ast body-term)))
+        (match ast
+          (('block forms) forms)
+          (_ (list ast))))))
+
 ;; {kind, _, [head, [do: body]]} -> (def kind name params guard body).
 ;; head is {name, _, sig} where sig is nil (0-arg) or the arg-term list; a guard
 ;; wraps the head in {:when, _, [head, guard]}.
 (define (term-def->ast kind args)
   (let* ((head (car args))
-         (kw   (cadr args))
-         (body (kw-term-get kw 'do)))
+         ;; a bodyless head (`def size(x)` in defprotocol, or a default-arg
+         ;; declaration head) has no keyword tail; stage0 makes the body #f.
+         (kw   (if (pair? (cdr args)) (cadr args) '()))
+         (body (kw-term-get kw 'do))
+         ;; rescue/catch/after sections make the def body an implicit try,
+         ;; exactly as the stage0 parser lowers it.
+         (sections? (any (lambda (k) (term-kw-has? kw k)) '(rescue catch after))))
     (call-with-values (lambda () (parse-head-term head))
       (lambda (name params guard)
-        `(def ,kind ,name ,params ,guard ,(term->ast body))))))
+        `(def ,kind ,name ,params ,guard
+              ,(cond (sections? (try-term->ast kw))
+                     ;; bodyless declaration (defprotocol head, default-arg
+                     ;; head): stage0 body is #f, not nil.
+                     ((not (term-kw-has? kw 'do)) #f)
+                     (else (term->ast body))))))))
 
 (define (parse-head-term head)
   (if (and (tuple? head) (= (tuple-size head) 3) (eq? (tuple-ref head 0) 'when))
@@ -358,9 +482,15 @@
         (lambda (name params _g) (values name params #f)))))
 
 (define (parse-sig-term sig)
-  ;; {name, _, nil} -> 0-arg ; {name, _, args} -> args as patterns
+  ;; {name, _, nil} -> 0-arg ; {name, _, args} -> args as patterns.
+  ;; A dynamic head `def unquote(n)(…)` arrives as {{:unquote,_,[n]},_,args}
+  ;; and becomes stage0's (unquote-name <n-ast>).
   (let ((name (tuple-ref sig 0)) (a (tuple-ref sig 2)))
-    (values name (if (list? a) (map term->ast a) '()) #f)))
+    (values (if (and (tuple? name) (= (tuple-size name) 3)
+                     (eq? (tuple-ref name 0) 'unquote))
+                `(unquote-name ,(term->ast (car (tuple-ref name 2))))
+                name)
+            (if (list? a) (map term->ast a) '()) #f)))
 
 (define (kw-term-get kw key)
   (cond ((null? kw) 'nil)
@@ -409,7 +539,7 @@
 
 ;; Host compile: install macros, then expand (invoking them) and compile.
 (define (host-compile src)
-  (let ((ast (parse src)))
+  (let ((ast (front-parse src)))
     (reset-macros!)              ; per-compile: don't leak macros across programs
     (install-macros! ast)
     (parameterize ((*macro-runner* host-macro-runner)
